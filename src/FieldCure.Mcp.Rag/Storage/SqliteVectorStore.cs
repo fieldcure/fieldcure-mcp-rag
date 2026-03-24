@@ -235,6 +235,21 @@ public sealed class SqliteVectorStore : IDisposable
         return paths;
     }
 
+    /// <summary>
+    /// Removes all chunks, embeddings, and the file_index record for the given path.
+    /// Called when a previously indexed file no longer exists on disk.
+    /// </summary>
+    public async Task PurgeSourcePathAsync(string sourcePath)
+    {
+        await DeleteBySourcePathAsync(sourcePath);
+
+        await using var conn = OpenConnection();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM file_index WHERE source_path = @source_path";
+        cmd.Parameters.AddWithValue("@source_path", sourcePath);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     /// <summary>Returns total number of chunks stored.</summary>
     public async Task<int> GetTotalChunkCountAsync()
     {

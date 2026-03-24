@@ -36,6 +36,7 @@ public static class IndexDocumentsTool
         var indexed = 0;
         var skipped = 0;
         var failed = 0;
+        var removed = 0;
         var totalChunks = 0;
         var errors = new List<string>();
 
@@ -48,6 +49,19 @@ public static class IndexDocumentsTool
                        && SupportedExtensions.Contains(Path.GetExtension(f));
             })
             .ToList();
+
+        // Orphan cleanup: remove DB entries for files that no longer exist on disk
+        var actualPaths = files
+            .Select(f => Path.GetRelativePath(contextFolder, f).Replace('\\', '/'))
+            .ToHashSet(StringComparer.Ordinal);
+        var indexedPaths = await store.GetIndexedPathsAsync();
+        var orphanPaths = indexedPaths.Where(p => !actualPaths.Contains(p)).ToList();
+
+        foreach (var orphan in orphanPaths)
+        {
+            await store.PurgeSourcePathAsync(orphan);
+            removed++;
+        }
 
         foreach (var filePath in files)
         {
@@ -124,6 +138,7 @@ public static class IndexDocumentsTool
             indexed,
             skipped,
             failed,
+            removed,
             total_chunks = totalChunks,
             errors
         };
