@@ -17,4 +17,8 @@
     <ProjectReference Include="..\..\src\FieldCure.Mcp.Rag\FieldCure.Mcp.Rag.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="TestData\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
