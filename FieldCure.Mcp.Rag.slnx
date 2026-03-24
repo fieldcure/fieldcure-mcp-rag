@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/docs/">
     <File Path="README.md" />
+    <File Path="RELEASENOTES.md" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/FieldCure.Mcp.Rag/FieldCure.Mcp.Rag.csproj" />
