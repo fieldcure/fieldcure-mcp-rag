@@ -18,8 +18,8 @@ public static class SearchDocumentsTool
         string query,
         [Description("Maximum number of results (default: 5)")]
         int top_k = 5,
-        [Description("Minimum cosine similarity score 0-1 (default: 0.5)")]
-        float threshold = 0.5f,
+        [Description("Minimum cosine similarity score 0-1 (default: 0.3)")]
+        float threshold = 0.3f,
         CancellationToken cancellationToken = default)
     {
         var queryEmbedding = await context.EmbeddingProvider.EmbedAsync(query, cancellationToken);
