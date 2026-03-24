@@ -13,15 +13,22 @@ namespace FieldCure.Mcp.Rag.Tools;
 [McpServerToolType]
 public static class IndexDocumentsTool
 {
-    static readonly HashSet<string> SupportedExtensions = new(StringComparer.OrdinalIgnoreCase)
+    static readonly HashSet<string> PlainTextExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".pdf", ".docx", ".hwpx", ".xlsx", ".pptx", ".txt", ".md"
+        ".txt", ".md"
     };
+
+    /// <summary>
+    /// Returns all supported file extensions: DocumentParsers formats + plain text.
+    /// Automatically updated when new parsers are registered.
+    /// </summary>
+    static readonly HashSet<string> SupportedExtensions =
+        new(DocumentParserFactory.SupportedExtensions.Concat(PlainTextExtensions), StringComparer.OrdinalIgnoreCase);
 
     [McpServerTool(Name = "index_documents"), Description(
         "Indexes all supported documents in the context folder into the vector store. " +
         "Performs incremental updates — only changed or new files are re-indexed. " +
-        "Supported formats: PDF, DOCX, HWPX, XLSX, PPTX, TXT, MD.")]
+        "Supported formats: DOCX, HWPX, TXT, MD (auto-extends when new parsers are added).")]
     public static async Task<string> IndexDocuments(
         RagContext context,
         [Description("If true, re-indexes all files regardless of change detection.")]
