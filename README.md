@@ -1,16 +1,18 @@
-﻿# FieldCure MCP RAG Server
+# FieldCure MCP RAG Server
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that indexes documents into a vector store and performs semantic search using cosine similarity. Built with C# and the official [MCP C# SDK](https://github.com/modelcontextprotocol/csharp-sdk).
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that indexes documents and performs hybrid BM25 + vector search with Reciprocal Rank Fusion. Built with C# and the official [MCP C# SDK](https://github.com/modelcontextprotocol/csharp-sdk).
 
 ## Features
 
-- **3 MCP tools** — index documents, semantic search, chunk retrieval
+- **Hybrid search** — BM25 keyword (FTS5) + semantic vector search, fused via Reciprocal Rank Fusion (RRF)
+- **Embedding optional** — BM25 keyword search works without any embedding server configured
+- **3 MCP tools** — index documents, hybrid search, chunk retrieval
 - **Incremental indexing** — SHA256 change detection, only re-indexes modified files
 - **Orphan cleanup** — automatically removes DB entries for deleted files
-- **Korean-optimized chunking** — sentence boundary splitting for Korean (습니다./해요.), decimal protection, parenthesis-aware
+- **Korean-optimized chunking** — sentence boundary splitting for Korean, decimal protection, parenthesis-aware
 - **OpenAI-compatible embeddings** — works with Ollama, LM Studio, OpenAI, Azure OpenAI, Groq, Together AI
 - **SIMD-accelerated search** — cosine similarity via `System.Numerics.Vector`
-- **SQLite storage** — WAL mode, single-file database, zero configuration
+- **SQLite storage** — WAL mode, FTS5 trigram index, single-file database, zero configuration
 - **Stdio transport** — standard MCP subprocess model via JSON-RPC over stdin/stdout
 
 ## Installation
@@ -32,7 +34,7 @@ dotnet build
 ## Requirements
 
 - [.NET 9.0 Runtime](https://dotnet.microsoft.com/download/dotnet/9.0) or later
-- An embedding provider (Ollama, OpenAI, etc.)
+- An embedding provider (Ollama, OpenAI, etc.) — optional, BM25 search works without it
 
 ## Configuration
 
@@ -89,8 +91,16 @@ Add to `.vscode/mcp.json`:
 | Tool | Description |
 |------|-------------|
 | `index_documents` | Index all supported documents in the context folder (incremental) |
-| `search_documents` | Semantic search over indexed chunks |
+| `search_documents` | Hybrid BM25 + vector search with RRF fusion |
 | `get_document_chunk` | Retrieve full content of a specific chunk by ID |
+
+### Search Modes
+
+| Mode | When | Description |
+|------|------|-------------|
+| `hybrid` | Embedding server + query >= 3 chars | BM25 keyword + vector semantic, fused via RRF |
+| `bm25_only` | No embedding server configured | FTS5 trigram keyword search only |
+| `vector_only` | Query tokens all < 3 chars | Cosine similarity search only |
 
 ### Supported Formats
 
@@ -114,17 +124,29 @@ src/FieldCure.Mcp.Rag/
 │   ├── NullEmbeddingProvider.cs
 │   └── EmbeddingProviderFactory.cs
 ├── Storage/
-│   └── SqliteVectorStore.cs    # SQLite + SIMD cosine similarity
+│   └── SqliteVectorStore.cs    # SQLite + FTS5 BM25 + SIMD cosine similarity
+├── Search/
+│   ├── HybridSearcher.cs       # BM25 + Vector → RRF orchestration
+│   └── RrfFusion.cs            # Reciprocal Rank Fusion (k=60)
 ├── Chunking/
 │   └── TextChunker.cs          # Korean/English sentence-aware chunking
 ├── Tools/
 │   ├── IndexDocumentsTool.cs   # Incremental indexing with orphan cleanup
-│   ├── SearchDocumentsTool.cs  # Vector similarity search
+│   ├── SearchDocumentsTool.cs  # Hybrid search with mode selection
 │   └── GetDocumentChunkTool.cs # Chunk retrieval
 └── Models/
     ├── DocumentChunk.cs
-    └── SearchResult.cs
+    ├── SearchResult.cs
+    ├── HybridSearchResult.cs   # Results + SearchMode + metadata
+    └── SearchMode.cs           # Hybrid / VectorOnly / Bm25Only
 ```
+
+## Data Storage
+
+Index data is stored at `%LOCALAPPDATA%\FieldCure\Mcp.Rag\{folder_hash}\`:
+- `rag_index.db` — SQLite database (chunks, embeddings, FTS5 index, file hashes)
+
+Existing v0.1.0 indices at `{contextFolder}/.rag/` are auto-migrated on first run.
 
 ## Development
 

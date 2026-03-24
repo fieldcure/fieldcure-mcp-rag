@@ -1,5 +1,17 @@
 ﻿# Release Notes
 
+## v0.2.0
+
+Hybrid BM25 + Vector search with Reciprocal Rank Fusion.
+
+- **FTS5 BM25 full-text search** — SQLite FTS5 trigram index for keyword matching, Korean whitespace tokenization
+- **Reciprocal Rank Fusion (RRF)** — k=60 fusion of BM25 and vector results into a unified ranked list
+- **HybridSearcher** — automatic search mode selection (hybrid / bm25_only / vector_only) with graceful degradation
+- **Embedding server optional** — BM25 keyword search works without any embedding server configured (NullEmbeddingProvider)
+- **Data path migration** — index storage moved from `{contextFolder}/.rag/` to `%LOCALAPPDATA%\FieldCure\Mcp.Rag\{hash}\`; existing indices auto-migrated
+- **search_documents enhanced** — returns `search_mode` field indicating which search strategy was used
+- **Default threshold lowered** — similarity threshold 0.5 → 0.3 for better recall
+
 ## v0.1.0
 
 Initial release.

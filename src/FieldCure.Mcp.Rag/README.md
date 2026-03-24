@@ -1,6 +1,6 @@
 # FieldCure.Mcp.Rag
 
-**MCP RAG server for document indexing and semantic vector search** — chunks documents, generates embeddings via OpenAI-compatible APIs, and performs cosine similarity search over SQLite storage.
+**MCP RAG server with hybrid BM25 + vector search** — chunks documents, generates embeddings via OpenAI-compatible APIs, and performs keyword (FTS5) and semantic (cosine similarity) search with Reciprocal Rank Fusion.
 
 [![NuGet](https://img.shields.io/nuget/v/FieldCure.Mcp.Rag)](https://www.nuget.org/packages/FieldCure.Mcp.Rag)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/fieldcure/fieldcure-mcp-rag/blob/main/LICENSE)
@@ -63,8 +63,18 @@ Add to `.vscode/mcp.json`:
 | Tool | Description |
 |------|-------------|
 | `index_documents` | Index all supported documents (incremental, SHA256 change detection) |
-| `search_documents` | Semantic search over indexed chunks with cosine similarity |
+| `search_documents` | Hybrid BM25 + vector search with Reciprocal Rank Fusion |
 | `get_document_chunk` | Retrieve full content of a specific chunk by ID |
+
+## Search Modes
+
+| Mode | When | Description |
+|------|------|-------------|
+| `hybrid` | Embedding server + query >= 3 chars | BM25 keyword + vector semantic, fused via RRF |
+| `bm25_only` | No embedding server configured | FTS5 trigram keyword search only |
+| `vector_only` | Query tokens all < 3 chars | Cosine similarity search only |
+
+Embedding server is optional. Without it, BM25 keyword search still works.
 
 ## Supported Formats
 
@@ -78,6 +88,13 @@ DOCX, HWPX, TXT, MD — auto-extends when new parsers are added to FieldCure.Doc
 | `EMBEDDING_API_KEY` | *(empty)* | API key (empty for local servers) |
 | `EMBEDDING_MODEL` | `nomic-embed-text` | Model identifier |
 | `EMBEDDING_DIMENSION` | `0` (auto-detect) | Vector dimension |
+
+## Data Storage
+
+Index data is stored at `%LOCALAPPDATA%\FieldCure\Mcp.Rag\{folder_hash}\`:
+- `rag_index.db` — SQLite database (chunks, embeddings, FTS5 index, file hashes)
+
+Existing v0.1.0 indices at `{contextFolder}/.rag/` are auto-migrated on first run.
 
 ## Requirements
 
