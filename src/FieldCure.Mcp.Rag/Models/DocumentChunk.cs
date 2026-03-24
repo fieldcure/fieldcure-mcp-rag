@@ -13,4 +13,7 @@ public record DocumentChunk
     public required string Content { get; init; }
     public int CharOffset { get; init; }
     public string Metadata { get; init; } = "{}";
+
+    /// <summary>Total number of chunks from the same source document. Populated by batch queries.</summary>
+    public int TotalChunks { get; init; }
 }

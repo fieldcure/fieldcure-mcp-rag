@@ -179,4 +179,148 @@ public class SqliteVectorStoreTests
 
         Assert.AreEqual(2, await store.GetTotalChunkCountAsync());
     }
+
+    // --- FTS5 Tests ---
+
+    [TestMethod]
+    public async Task SearchFts_EnglishText_FindsMatch()
+    {
+        using var store = new SqliteVectorStore(CreateTempDb());
+
+        await store.UpsertChunkAsync(
+            new DocumentChunk { Id = "fts_0", SourcePath = "doc.txt", ChunkIndex = 0, Content = "Battery impedance spectroscopy analysis" },
+            new float[] { 1, 0 }, "test");
+        await store.UpsertChunkAsync(
+            new DocumentChunk { Id = "fts_1", SourcePath = "doc.txt", ChunkIndex = 1, Content = "Weather forecast for tomorrow" },
+            new float[] { 0, 1 }, "test");
+
+        var results = await store.SearchFtsAsync("impedance", 5);
+
+        Assert.AreEqual(1, results.Count);
+        Assert.AreEqual("fts_0", results[0].ChunkId);
+        Assert.IsTrue(results[0].Score > 0);
+    }
+
+    [TestMethod]
+    public async Task SearchFts_KoreanTrigram_FindsMatch()
+    {
+        using var store = new SqliteVectorStore(CreateTempDb());
+
+        await store.UpsertChunkAsync(
+            new DocumentChunk { Id = "kr_0", SourcePath = "doc.hwpx", ChunkIndex = 0, Content = "전기화학 임피던스 분광법은 배터리 진단에 사용됩니다" },
+            new float[] { 1, 0 }, "test");
+
+        var results = await store.SearchFtsAsync("임피던스", 5);
+
+        Assert.IsTrue(results.Count > 0);
+        Assert.AreEqual("kr_0", results[0].ChunkId);
+    }
+
+    [TestMethod]
+    public async Task SearchFts_ShortTokensDropped()
+    {
+        using var store = new SqliteVectorStore(CreateTempDb());
+
+        await store.UpsertChunkAsync(
+            new DocumentChunk { Id = "st_0", SourcePath = "doc.txt", ChunkIndex = 0, Content = "RS 임피던스 분석 결과를 확인합니다" },
+            new float[] { 1, 0 }, "test");
+
+        // "RS" (2 chars) is dropped, only "임피던스" (4 chars, >= 3) is searched
+        var results = await store.SearchFtsAsync("RS 임피던스", 5);
+
+        Assert.IsTrue(results.Count > 0);
+        Assert.AreEqual("st_0", results[0].ChunkId);
+    }
+
+    [TestMethod]
+    public async Task SearchFts_AllTokensTooShort_ReturnsEmpty()
+    {
+        using var store = new SqliteVectorStore(CreateTempDb());
+
+        await store.UpsertChunkAsync(
+            new DocumentChunk { Id = "as_0", SourcePath = "doc.txt", ChunkIndex = 0, Content = "Some content here" },
+            new float[] { 1, 0 }, "test");
+
+        var results = await store.SearchFtsAsync("RS ab", 5);
+
+        Assert.AreEqual(0, results.Count);
+    }
+
+    [TestMethod]
+    public async Task DeleteBySourcePath_AlsoRemovesFtsRecords()
+    {
+        using var store = new SqliteVectorStore(CreateTempDb());
+
+        await store.UpsertChunkAsync(
+            new DocumentChunk { Id = "df_0", SourcePath = "delete_me.txt", ChunkIndex = 0, Content = "Impedance analysis content" },
+            new float[] { 1, 0 }, "test");
+
+        // Verify FTS5 finds it before deletion
+        var before = await store.SearchFtsAsync("Impedance", 5);
+        Assert.IsTrue(before.Count > 0);
+
+        await store.DeleteBySourcePathAsync("delete_me.txt");
+
+        var after = await store.SearchFtsAsync("Impedance", 5);
+        Assert.AreEqual(0, after.Count);
+    }
+
+    [TestMethod]
+    public async Task GetChunksByIds_ReturnsMatchingChunks()
+    {
+        using var store = new SqliteVectorStore(CreateTempDb());
+
+        await store.UpsertChunkAsync(
+            new DocumentChunk { Id = "bi_0", SourcePath = "a.txt", ChunkIndex = 0, Content = "First" },
+            new float[] { 1, 0 }, "test");
+        await store.UpsertChunkAsync(
+            new DocumentChunk { Id = "bi_1", SourcePath = "a.txt", ChunkIndex = 1, Content = "Second" },
+            new float[] { 0, 1 }, "test");
+        await store.UpsertChunkAsync(
+            new DocumentChunk { Id = "bi_2", SourcePath = "b.txt", ChunkIndex = 0, Content = "Third" },
+            new float[] { 1, 1 }, "test");
+
+        var results = await store.GetChunksByIdsAsync(["bi_0", "bi_2", "nonexistent"]);
+
+        Assert.AreEqual(2, results.Count);
+        Assert.IsTrue(results.Any(c => c.Id == "bi_0"));
+        Assert.IsTrue(results.Any(c => c.Id == "bi_2"));
+    }
+
+    [TestMethod]
+    public async Task GetChunksByIds_IncludesTotalChunks()
+    {
+        using var store = new SqliteVectorStore(CreateTempDb());
+
+        // Insert 3 chunks for same source
+        for (int i = 0; i < 3; i++)
+        {
+            await store.UpsertChunkAsync(
+                new DocumentChunk { Id = $"tc_{i}", SourcePath = "multi.txt", ChunkIndex = i, Content = $"Chunk {i}" },
+                new float[] { 1, 0 }, "test");
+        }
+
+        var results = await store.GetChunksByIdsAsync(["tc_1"]);
+
+        Assert.AreEqual(1, results.Count);
+        Assert.AreEqual(3, results[0].TotalChunks);
+    }
+
+    [TestMethod]
+    public async Task GetChunksByIds_EmptyList_ReturnsEmpty()
+    {
+        using var store = new SqliteVectorStore(CreateTempDb());
+        var results = await store.GetChunksByIdsAsync([]);
+        Assert.AreEqual(0, results.Count);
+    }
+
+    [TestMethod]
+    public void BuildFtsQuery_FiltersShortTokens()
+    {
+        Assert.AreEqual("\"임피던스\"", SqliteVectorStore.BuildFtsQuery("RS 임피던스"));
+        Assert.AreEqual("\"임피던스\" OR \"분광법\"", SqliteVectorStore.BuildFtsQuery("임피던스 분광법"));
+        Assert.AreEqual("", SqliteVectorStore.BuildFtsQuery("RS ab"));
+        Assert.AreEqual("", SqliteVectorStore.BuildFtsQuery(""));
+        Assert.AreEqual("\"abc\"", SqliteVectorStore.BuildFtsQuery("abc"));
+    }
 }

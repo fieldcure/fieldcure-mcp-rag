@@ -58,6 +58,12 @@ public sealed class SqliteVectorStore : IDisposable
             );
 
             CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_path);
+
+            CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+                chunk_id,
+                content,
+                tokenize = 'trigram'
+            );
             """;
         cmd.ExecuteNonQuery();
     }
@@ -99,6 +105,18 @@ public sealed class SqliteVectorStore : IDisposable
         embCmd.Parameters.AddWithValue("@model", modelId);
         embCmd.Parameters.AddWithValue("@embedding", SerializeVector(embedding));
         await embCmd.ExecuteNonQueryAsync();
+
+        // FTS5 sync: delete-then-insert (virtual tables don't support REPLACE)
+        await using var ftsDelCmd = conn.CreateCommand();
+        ftsDelCmd.CommandText = "DELETE FROM chunks_fts WHERE chunk_id = @id";
+        ftsDelCmd.Parameters.AddWithValue("@id", chunk.Id);
+        await ftsDelCmd.ExecuteNonQueryAsync();
+
+        await using var ftsInsCmd = conn.CreateCommand();
+        ftsInsCmd.CommandText = "INSERT INTO chunks_fts (chunk_id, content) VALUES (@id, @content)";
+        ftsInsCmd.Parameters.AddWithValue("@id", chunk.Id);
+        ftsInsCmd.Parameters.AddWithValue("@content", chunk.Content);
+        await ftsInsCmd.ExecuteNonQueryAsync();
     }
 
     /// <summary>
@@ -108,6 +126,16 @@ public sealed class SqliteVectorStore : IDisposable
     public async Task DeleteBySourcePathAsync(string sourcePath)
     {
         await using var conn = OpenConnection();
+
+        // FTS5 cleanup must run before chunks deletion (needs chunks table for subquery)
+        await using var ftsCmd = conn.CreateCommand();
+        ftsCmd.CommandText = """
+            DELETE FROM chunks_fts WHERE chunk_id IN
+                (SELECT id FROM chunks WHERE source_path = @source_path)
+            """;
+        ftsCmd.Parameters.AddWithValue("@source_path", sourcePath);
+        await ftsCmd.ExecuteNonQueryAsync();
+
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM chunks WHERE source_path = @source_path";
         cmd.Parameters.AddWithValue("@source_path", sourcePath);
@@ -258,6 +286,121 @@ public sealed class SqliteVectorStore : IDisposable
         cmd.CommandText = "SELECT COUNT(*) FROM chunks";
         var result = await cmd.ExecuteScalarAsync();
         return Convert.ToInt32(result);
+    }
+
+    /// <summary>
+    /// Performs BM25 full-text search via FTS5 with trigram tokenizer.
+    /// Filters out query tokens shorter than 3 characters (trigram minimum).
+    /// Returns empty list if no valid tokens remain (caller should fall back to vector search).
+    /// </summary>
+    public async Task<List<(string ChunkId, double Score)>> SearchFtsAsync(string query, int topK)
+    {
+        var ftsQuery = BuildFtsQuery(query);
+        if (string.IsNullOrEmpty(ftsQuery))
+            return [];
+
+        var results = new List<(string ChunkId, double Score)>();
+
+        await using var conn = OpenConnection();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT chunk_id, bm25(chunks_fts) as score
+            FROM chunks_fts
+            WHERE chunks_fts MATCH @query
+            ORDER BY bm25(chunks_fts)
+            LIMIT @topK
+            """;
+        cmd.Parameters.AddWithValue("@query", ftsQuery);
+        cmd.Parameters.AddWithValue("@topK", topK);
+
+        try
+        {
+            await using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var chunkId = reader.GetString(0);
+                var score = reader.GetDouble(1);
+                // bm25() returns negative values (lower = more relevant); negate for consistency
+                results.Add((chunkId, -score));
+            }
+        }
+        catch (SqliteException)
+        {
+            // Malformed query or FTS5 error — return empty results gracefully
+            return [];
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Retrieves multiple chunks by their IDs in a single query.
+    /// Includes total chunk count per source path for has_previous/has_next computation.
+    /// </summary>
+    public async Task<List<DocumentChunk>> GetChunksByIdsAsync(IReadOnlyList<string> chunkIds)
+    {
+        if (chunkIds.Count == 0)
+            return [];
+
+        await using var conn = OpenConnection();
+        await using var cmd = conn.CreateCommand();
+
+        var paramNames = new string[chunkIds.Count];
+        for (int i = 0; i < chunkIds.Count; i++)
+        {
+            paramNames[i] = $"@p{i}";
+            cmd.Parameters.AddWithValue(paramNames[i], chunkIds[i]);
+        }
+
+        var inClause = string.Join(", ", paramNames);
+        cmd.CommandText = $"""
+            SELECT c.id, c.source_path, c.chunk_index, c.content, c.char_offset, c.metadata,
+                   (SELECT COUNT(*) FROM chunks c2 WHERE c2.source_path = c.source_path) as total_chunks
+            FROM chunks c
+            WHERE c.id IN ({inClause})
+            """;
+
+        var results = new List<DocumentChunk>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            results.Add(new DocumentChunk
+            {
+                Id = reader.GetString(0),
+                SourcePath = reader.GetString(1),
+                ChunkIndex = reader.GetInt32(2),
+                Content = reader.GetString(3),
+                CharOffset = reader.GetInt32(4),
+                Metadata = reader.GetString(5),
+                TotalChunks = reader.GetInt32(6),
+            });
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Builds an FTS5 MATCH query from user input.
+    /// Drops tokens shorter than 3 characters (trigram tokenizer minimum).
+    /// Joins remaining tokens with OR for broad matching.
+    /// </summary>
+    internal static string BuildFtsQuery(string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+            return "";
+
+        var tokens = query.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+            .Where(t => t.Length >= 3)
+            .Select(EscapeFtsToken)
+            .ToList();
+
+        return tokens.Count == 0 ? "" : string.Join(" OR ", tokens);
+    }
+
+    static string EscapeFtsToken(string token)
+    {
+        // Wrap in double quotes to handle special characters in FTS5
+        return $"\"{token.Replace("\"", "\"\"")}\"";
     }
 
     public void Dispose()
