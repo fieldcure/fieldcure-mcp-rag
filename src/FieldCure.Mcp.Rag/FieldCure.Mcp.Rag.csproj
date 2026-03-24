@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>FieldCure.Mcp.Rag</RootNamespace>
+    <AssemblyName>fieldcure-mcp-rag</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <Version>0.1.0</Version>
+    <PackageId>FieldCure.Mcp.Rag</PackageId>
+
+    <Authors>Jong Hyun Kim</Authors>
+    <Company>Fieldcure Co., Ltd.</Company>
+    <Copyright>Copyright (c) 2026 Fieldcure Co., Ltd.</Copyright>
+    <Description>MCP RAG server that chunks documents, generates embeddings, and performs semantic vector search using cosine similarity.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/fieldcure/fieldcure-mcp-rag</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/fieldcure/fieldcure-mcp-rag</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>mcp;rag;embedding;vector-search;ai</PackageTags>
+
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>fieldcure-mcp-rag</ToolCommandName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="0.2.*" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.*" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.*" />
+    <PackageReference Include="System.Net.Http.Json" Version="9.*" />
+    <PackageReference Include="FieldCure.DocumentParsers" Version="*" />
+  </ItemGroup>
+
+</Project>
