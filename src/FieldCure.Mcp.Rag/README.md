@@ -1,6 +1,6 @@
 # FieldCure.Mcp.Rag
 
-**MCP RAG server with hybrid BM25 + vector search** — chunks documents, generates embeddings via OpenAI-compatible APIs, and performs keyword (FTS5) and semantic (cosine similarity) search with Reciprocal Rank Fusion.
+**MCP RAG server with hybrid BM25 + vector search and AI-powered chunk contextualization** — chunks documents, enriches chunks with AI-generated context and keywords, generates embeddings via OpenAI-compatible APIs, and performs keyword (FTS5) and semantic (cosine similarity) search with Reciprocal Rank Fusion.
 
 [![NuGet](https://img.shields.io/nuget/v/FieldCure.Mcp.Rag)](https://www.nuget.org/packages/FieldCure.Mcp.Rag)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/fieldcure/fieldcure-mcp-rag/blob/main/LICENSE)
@@ -82,12 +82,25 @@ DOCX, HWPX, TXT, MD — auto-extends when new parsers are added to FieldCure.Doc
 
 ## Environment Variables
 
+### Embedding
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `EMBEDDING_BASE_URL` | `http://localhost:11434` | Embedding API base URL |
 | `EMBEDDING_API_KEY` | *(empty)* | API key (empty for local servers) |
 | `EMBEDDING_MODEL` | `nomic-embed-text` | Model identifier |
 | `EMBEDDING_DIMENSION` | `0` (auto-detect) | Vector dimension |
+
+### Chunk Contextualization (v0.3.0)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CONTEXTUALIZER_PROVIDER` | `openai` | Provider: `openai` or `anthropic` |
+| `CONTEXTUALIZER_BASE_URL` | *(empty)* | API base URL (e.g., `http://localhost:11434` for Ollama) |
+| `CONTEXTUALIZER_API_KEY` | *(empty)* | API key (empty for local servers) |
+| `CONTEXTUALIZER_MODEL` | *(empty)* | Model identifier. If empty, contextualization is disabled |
+
+When configured, each chunk is enriched with AI-generated context and normalized keywords during indexing. Search uses enriched text; responses return original text.
 
 ## Data Storage
 
@@ -98,7 +111,7 @@ Existing v0.1.0 indices at `{contextFolder}/.rag/` are auto-migrated on first ru
 
 ## Requirements
 
-- [.NET 9.0 Runtime](https://dotnet.microsoft.com/download/dotnet/9.0) or later
+- [.NET 8.0 Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) or later
 
 ## Links
 

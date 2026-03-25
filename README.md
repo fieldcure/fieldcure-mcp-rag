@@ -4,6 +4,7 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that in
 
 ## Features
 
+- **Chunk Contextualization** — AI-powered context + keyword enrichment per chunk for improved search (v0.3.0)
 - **Hybrid search** — BM25 keyword (FTS5) + semantic vector search, fused via Reciprocal Rank Fusion (RRF)
 - **Embedding optional** — BM25 keyword search works without any embedding server configured
 - **3 MCP tools** — index documents, hybrid search, chunk retrieval
@@ -33,7 +34,7 @@ dotnet build
 
 ## Requirements
 
-- [.NET 9.0 Runtime](https://dotnet.microsoft.com/download/dotnet/9.0) or later
+- [.NET 8.0 Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) or later
 - An embedding provider (Ollama, OpenAI, etc.) — optional, BM25 search works without it
 
 ## Configuration
@@ -79,12 +80,25 @@ Add to `.vscode/mcp.json`:
 
 ### Environment Variables
 
+#### Embedding
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `EMBEDDING_BASE_URL` | `http://localhost:11434` | Embedding API base URL |
 | `EMBEDDING_API_KEY` | *(empty)* | API key (empty for local servers) |
 | `EMBEDDING_MODEL` | `nomic-embed-text` | Model identifier |
 | `EMBEDDING_DIMENSION` | `0` (auto-detect) | Vector dimension |
+
+#### Chunk Contextualization (v0.3.0)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CONTEXTUALIZER_PROVIDER` | `openai` | Provider: `openai` or `anthropic` |
+| `CONTEXTUALIZER_BASE_URL` | *(empty)* | API base URL (e.g., `http://localhost:11434` for Ollama) |
+| `CONTEXTUALIZER_API_KEY` | *(empty)* | API key (empty for local servers) |
+| `CONTEXTUALIZER_MODEL` | *(empty)* | Model identifier. If empty, contextualization is disabled (v0.2.0 behavior) |
+
+When configured, the contextualizer enriches each chunk with AI-generated context descriptions and normalized keywords during indexing. Search uses the enriched text; responses return the original text.
 
 ## Tools
 
@@ -118,6 +132,12 @@ Additional formats are automatically supported when new parsers are registered.
 src/FieldCure.Mcp.Rag/
 ├── Program.cs                  # Entry point, DI setup, stdio transport
 ├── RagContext.cs               # DI service container
+├── Contextualization/
+│   ├── IChunkContextualizer.cs         # Contextualizer abstraction
+│   ├── NullChunkContextualizer.cs      # No-op (default, v0.2.0 behavior)
+│   ├── ChunkContextualizerHelper.cs    # Shared prompt/parsing logic
+│   ├── OpenAiChunkContextualizer.cs    # OpenAI/Ollama/Groq
+│   └── AnthropicChunkContextualizer.cs # Claude API (/v1/messages)
 ├── Embedding/
 │   ├── IEmbeddingProvider.cs   # Embedding abstraction
 │   ├── OpenAiCompatibleEmbeddingProvider.cs

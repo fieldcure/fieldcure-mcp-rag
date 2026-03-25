@@ -1,14 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <OutputType>Exe</OutputType>
     <RootNamespace>FieldCure.Mcp.Rag</RootNamespace>
     <AssemblyName>fieldcure-mcp-rag</AssemblyName>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <PackageId>FieldCure.Mcp.Rag</PackageId>
 
     <Authors>Jong Hyun Kim</Authors>
@@ -38,9 +38,9 @@
 
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol" Version="0.2.*" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.*" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.*" />
-    <PackageReference Include="System.Net.Http.Json" Version="9.*" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.*" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.*" />
+    <PackageReference Include="System.Net.Http.Json" Version="8.*" />
     <PackageReference Include="FieldCure.DocumentParsers" Version="*" />
   </ItemGroup>
 

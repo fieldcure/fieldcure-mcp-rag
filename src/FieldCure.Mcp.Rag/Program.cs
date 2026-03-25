@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using FieldCure.Mcp.Rag;
 using FieldCure.Mcp.Rag.Chunking;
+using FieldCure.Mcp.Rag.Contextualization;
 using FieldCure.Mcp.Rag.Embedding;
 using FieldCure.Mcp.Rag.Search;
 using FieldCure.Mcp.Rag.Storage;
@@ -50,8 +51,34 @@ var chunker = new TextChunker();
 // Hybrid searcher
 var searcher = new HybridSearcher(store, embeddingProvider);
 
+// Chunk contextualizer: read from environment variables
+IChunkContextualizer contextualizer;
+var ctxProvider = Environment.GetEnvironmentVariable("CONTEXTUALIZER_PROVIDER") ?? "openai";
+var ctxBaseUrl = Environment.GetEnvironmentVariable("CONTEXTUALIZER_BASE_URL") ?? "";
+var ctxApiKey = Environment.GetEnvironmentVariable("CONTEXTUALIZER_API_KEY") ?? "";
+var ctxModel = Environment.GetEnvironmentVariable("CONTEXTUALIZER_MODEL") ?? "";
+
+if (string.IsNullOrEmpty(ctxModel))
+{
+    contextualizer = new NullChunkContextualizer();
+}
+else if (ctxProvider.Equals("anthropic", StringComparison.OrdinalIgnoreCase))
+{
+    contextualizer = new AnthropicChunkContextualizer(
+        apiKey: ctxApiKey,
+        model: ctxModel,
+        baseUrl: string.IsNullOrEmpty(ctxBaseUrl) ? "https://api.anthropic.com" : ctxBaseUrl);
+}
+else
+{
+    // "openai" (default) — covers OpenAI, Ollama, Groq, Gemini
+    contextualizer = new OpenAiChunkContextualizer(ctxBaseUrl, ctxModel, ctxApiKey);
+}
+
+Console.Error.WriteLine($"Contextualizer: {contextualizer.GetType().Name} ({ctxModel})");
+
 // RAG context for DI
-var ragContext = new RagContext(contextFolder, dataRoot, store, embeddingProvider, chunker, searcher);
+var ragContext = new RagContext(contextFolder, dataRoot, store, embeddingProvider, chunker, searcher, contextualizer);
 
 var builder = Host.CreateApplicationBuilder(Array.Empty<string>());
 
@@ -67,7 +94,7 @@ builder.Services
         options.ServerInfo = new()
         {
             Name = "fieldcure-mcp-rag",
-            Version = "0.2.0",
+            Version = "0.3.0",
         };
     })
     .WithStdioServerTransport()

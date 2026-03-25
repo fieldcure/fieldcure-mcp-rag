@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using FieldCure.DocumentParsers;
 using FieldCure.Mcp.Rag.Chunking;
+using FieldCure.Mcp.Rag.Contextualization;
 using FieldCure.Mcp.Rag.Embedding;
 using FieldCure.Mcp.Rag.Models;
 using FieldCure.Mcp.Rag.Storage;
@@ -110,11 +111,28 @@ public static class IndexDocumentsTool
                     continue;
                 }
 
-                // Batch embed
-                var texts = chunks.Select(c => c.Content).ToList();
-                var embeddings = await embeddingProvider.EmbedBatchAsync(texts, cancellationToken);
+                // Contextualize chunks
+                var contextualizer = context.Contextualizer;
+                var documentContext = ChunkContextualizerHelper.TruncateDocumentContext(text);
+                var fileName = Path.GetFileName(filePath);
 
-                // Upsert chunks
+                var enrichedTexts = new string[chunks.Count];
+                for (int i = 0; i < chunks.Count; i++)
+                {
+                    enrichedTexts[i] = await contextualizer.EnrichAsync(
+                        chunks[i].Content,
+                        documentContext,
+                        fileName,
+                        i,
+                        chunks.Count,
+                        cancellationToken);
+                }
+
+                // Batch embed using enriched text
+                var embeddings = await embeddingProvider.EmbedBatchAsync(
+                    enrichedTexts.ToList(), cancellationToken);
+
+                // Upsert chunks with original content + enriched text
                 var pathHash = ComputeStringHash(relativePath);
                 for (int i = 0; i < chunks.Count; i++)
                 {
@@ -126,7 +144,7 @@ public static class IndexDocumentsTool
                         Content = chunks[i].Content,
                         CharOffset = chunks[i].CharOffset,
                     };
-                    await store.UpsertChunkAsync(chunk, embeddings[i], embeddingProvider.ModelId);
+                    await store.UpsertChunkAsync(chunk, embeddings[i], embeddingProvider.ModelId, enrichedTexts[i]);
                 }
 
                 await store.SetFileHashAsync(relativePath, hash);

@@ -1,0 +1,70 @@
+using System.Net.Http.Json;
+using System.Text.Json;
+
+namespace FieldCure.Mcp.Rag.Contextualization;
+
+/// <summary>
+/// Enriches chunks using the Anthropic Messages API (/v1/messages).
+/// Use for Claude models (Haiku, Sonnet, Opus).
+/// </summary>
+public sealed class AnthropicChunkContextualizer : IChunkContextualizer
+{
+    private readonly HttpClient _http;
+    private readonly string _model;
+
+    /// <summary>
+    /// Initializes the Anthropic contextualizer.
+    /// </summary>
+    /// <param name="apiKey">Anthropic API key (x-api-key header).</param>
+    /// <param name="model">Model identifier (e.g., "claude-haiku-4-5-20251001").</param>
+    /// <param name="baseUrl">API base URL. Default: "https://api.anthropic.com".</param>
+    public AnthropicChunkContextualizer(string apiKey, string model, string baseUrl = "https://api.anthropic.com")
+    {
+        _http = new HttpClient { BaseAddress = new Uri(baseUrl.TrimEnd('/')) };
+        _http.DefaultRequestHeaders.Add("x-api-key", apiKey);
+        _http.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
+        _model = model;
+    }
+
+    public async Task<string> EnrichAsync(
+        string chunkText,
+        string? documentContext,
+        string sourceFileName,
+        int chunkIndex,
+        int totalChunks,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var prompt = ChunkContextualizerHelper.BuildPrompt(
+                chunkText, documentContext, sourceFileName, chunkIndex, totalChunks);
+
+            var request = new
+            {
+                model = _model,
+                max_tokens = 300,
+                system = ChunkContextualizerHelper.SystemPrompt,
+                messages = new[]
+                {
+                    new { role = "user", content = prompt }
+                }
+            };
+
+            var response = await _http.PostAsJsonAsync("/v1/messages", request, ct);
+            response.EnsureSuccessStatusCode();
+
+            var result = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
+            var output = result
+                .GetProperty("content")[0]
+                .GetProperty("text")
+                .GetString() ?? "";
+
+            return ChunkContextualizerHelper.ParseEnrichedOutput(output, chunkText);
+        }
+        catch
+        {
+            // AI 호출 실패 → 원본 반환 (인덱싱 중단 안 함)
+            return chunkText;
+        }
+    }
+}

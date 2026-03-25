@@ -41,6 +41,7 @@ public sealed class SqliteVectorStore : IDisposable
                 source_path  TEXT NOT NULL,
                 chunk_index  INTEGER NOT NULL,
                 content      TEXT NOT NULL,
+                enriched     TEXT,
                 char_offset  INTEGER NOT NULL DEFAULT 0,
                 metadata     TEXT NOT NULL DEFAULT '{}'
             );
@@ -66,6 +67,38 @@ public sealed class SqliteVectorStore : IDisposable
             );
             """;
         cmd.ExecuteNonQuery();
+
+        // Migration: add enriched column if missing (v0.2.0 → v0.3.0)
+        MigrateEnrichedColumn(conn);
+    }
+
+    static void MigrateEnrichedColumn(SqliteConnection conn)
+    {
+        using var pragmaCmd = conn.CreateCommand();
+        pragmaCmd.CommandText = "PRAGMA table_info(chunks)";
+        var hasEnriched = false;
+        using (var reader = pragmaCmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                if (string.Equals(reader.GetString(1), "enriched", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasEnriched = true;
+                    break;
+                }
+            }
+        }
+
+        if (!hasEnriched)
+        {
+            using var alterCmd = conn.CreateCommand();
+            alterCmd.CommandText = "ALTER TABLE chunks ADD COLUMN enriched TEXT";
+            alterCmd.ExecuteNonQuery();
+
+            using var updateCmd = conn.CreateCommand();
+            updateCmd.CommandText = "UPDATE chunks SET enriched = content WHERE enriched IS NULL";
+            updateCmd.ExecuteNonQuery();
+        }
     }
 
     SqliteConnection OpenConnection()
@@ -79,19 +112,22 @@ public sealed class SqliteVectorStore : IDisposable
     /// Upserts a chunk and its embedding vector.
     /// Uses INSERT OR REPLACE semantics keyed on chunk.Id.
     /// </summary>
-    public async Task UpsertChunkAsync(DocumentChunk chunk, float[] embedding, string modelId)
+    public async Task UpsertChunkAsync(DocumentChunk chunk, float[] embedding, string modelId, string? enrichedText = null)
     {
+        var enriched = enrichedText ?? chunk.Content;
+
         await using var conn = OpenConnection();
 
         await using var chunkCmd = conn.CreateCommand();
         chunkCmd.CommandText = """
-            INSERT OR REPLACE INTO chunks (id, source_path, chunk_index, content, char_offset, metadata)
-            VALUES (@id, @source_path, @chunk_index, @content, @char_offset, @metadata)
+            INSERT OR REPLACE INTO chunks (id, source_path, chunk_index, content, enriched, char_offset, metadata)
+            VALUES (@id, @source_path, @chunk_index, @content, @enriched, @char_offset, @metadata)
             """;
         chunkCmd.Parameters.AddWithValue("@id", chunk.Id);
         chunkCmd.Parameters.AddWithValue("@source_path", chunk.SourcePath);
         chunkCmd.Parameters.AddWithValue("@chunk_index", chunk.ChunkIndex);
         chunkCmd.Parameters.AddWithValue("@content", chunk.Content);
+        chunkCmd.Parameters.AddWithValue("@enriched", enriched);
         chunkCmd.Parameters.AddWithValue("@char_offset", chunk.CharOffset);
         chunkCmd.Parameters.AddWithValue("@metadata", chunk.Metadata);
         await chunkCmd.ExecuteNonQueryAsync();
@@ -107,6 +143,7 @@ public sealed class SqliteVectorStore : IDisposable
         await embCmd.ExecuteNonQueryAsync();
 
         // FTS5 sync: delete-then-insert (virtual tables don't support REPLACE)
+        // Index enriched text for improved search
         await using var ftsDelCmd = conn.CreateCommand();
         ftsDelCmd.CommandText = "DELETE FROM chunks_fts WHERE chunk_id = @id";
         ftsDelCmd.Parameters.AddWithValue("@id", chunk.Id);
@@ -115,7 +152,7 @@ public sealed class SqliteVectorStore : IDisposable
         await using var ftsInsCmd = conn.CreateCommand();
         ftsInsCmd.CommandText = "INSERT INTO chunks_fts (chunk_id, content) VALUES (@id, @content)";
         ftsInsCmd.Parameters.AddWithValue("@id", chunk.Id);
-        ftsInsCmd.Parameters.AddWithValue("@content", chunk.Content);
+        ftsInsCmd.Parameters.AddWithValue("@content", enriched);
         await ftsInsCmd.ExecuteNonQueryAsync();
     }
 

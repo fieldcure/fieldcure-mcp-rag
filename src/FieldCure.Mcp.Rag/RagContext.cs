@@ -1,4 +1,5 @@
 using FieldCure.Mcp.Rag.Chunking;
+using FieldCure.Mcp.Rag.Contextualization;
 using FieldCure.Mcp.Rag.Embedding;
 using FieldCure.Mcp.Rag.Search;
 using FieldCure.Mcp.Rag.Storage;
@@ -17,6 +18,7 @@ public sealed class RagContext
     public IEmbeddingProvider EmbeddingProvider { get; }
     public TextChunker Chunker { get; }
     public HybridSearcher Searcher { get; }
+    public IChunkContextualizer Contextualizer { get; }
 
     public RagContext(
         string contextFolder,
@@ -24,7 +26,8 @@ public sealed class RagContext
         SqliteVectorStore store,
         IEmbeddingProvider embeddingProvider,
         TextChunker chunker,
-        HybridSearcher searcher)
+        HybridSearcher searcher,
+        IChunkContextualizer contextualizer)
     {
         ContextFolder = contextFolder;
         DataRoot = dataRoot;
@@ -32,5 +35,6 @@ public sealed class RagContext
         EmbeddingProvider = embeddingProvider;
         Chunker = chunker;
         Searcher = searcher;
+        Contextualizer = contextualizer;
     }
 }

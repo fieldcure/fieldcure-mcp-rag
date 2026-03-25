@@ -1,0 +1,29 @@
+namespace FieldCure.Mcp.Rag.Contextualization;
+
+/// <summary>
+/// Enriches a text chunk with document context and normalized keywords
+/// for improved search indexing. Called once per chunk during indexing.
+/// </summary>
+public interface IChunkContextualizer
+{
+    /// <summary>
+    /// Enriches a chunk with contextual information.
+    /// </summary>
+    /// <param name="chunkText">Original chunk text.</param>
+    /// <param name="documentContext">
+    /// Surrounding context — full document text or summary.
+    /// May be null if document is too large.
+    /// </param>
+    /// <param name="sourceFileName">Source file name for additional context.</param>
+    /// <param name="chunkIndex">Zero-based chunk index within the document.</param>
+    /// <param name="totalChunks">Total number of chunks in the document.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Enriched text to be indexed. Original text on failure.</returns>
+    Task<string> EnrichAsync(
+        string chunkText,
+        string? documentContext,
+        string sourceFileName,
+        int chunkIndex,
+        int totalChunks,
+        CancellationToken ct = default);
+}
