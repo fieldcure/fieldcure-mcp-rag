@@ -14,6 +14,8 @@ namespace FieldCure.Mcp.Rag.Tools;
 [McpServerToolType]
 public static class IndexDocumentsTool
 {
+    static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+
     static readonly HashSet<string> PlainTextExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".txt", ".md"
@@ -117,7 +119,7 @@ public static class IndexDocumentsTool
                 var fileName = Path.GetFileName(filePath);
 
                 var enrichedTexts = new string[chunks.Count];
-                for (int i = 0; i < chunks.Count; i++)
+                for (var i = 0; i < chunks.Count; i++)
                 {
                     enrichedTexts[i] = await contextualizer.EnrichAsync(
                         chunks[i].Content,
@@ -130,11 +132,11 @@ public static class IndexDocumentsTool
 
                 // Batch embed using enriched text
                 var embeddings = await embeddingProvider.EmbedBatchAsync(
-                    enrichedTexts.ToList(), cancellationToken);
+                    enrichedTexts, cancellationToken);
 
                 // Upsert chunks with original content + enriched text
                 var pathHash = ComputeStringHash(relativePath);
-                for (int i = 0; i < chunks.Count; i++)
+                for (var i = 0; i < chunks.Count; i++)
                 {
                     var chunk = new DocumentChunk
                     {
@@ -168,7 +170,7 @@ public static class IndexDocumentsTool
             errors
         };
 
-        return JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true });
+        return JsonSerializer.Serialize(result, JsonOptions);
     }
 
     static async Task<string> ParseDocumentAsync(string filePath)

@@ -6,7 +6,7 @@ namespace FieldCure.Mcp.Rag.Chunking;
 /// Splits document text into overlapping chunks using a sliding window approach.
 /// Respects sentence boundaries for Korean, English, and CJK text.
 /// </summary>
-public sealed class TextChunker
+public sealed partial class TextChunker
 {
     readonly int _chunkSize;
     readonly int _overlap;
@@ -18,13 +18,13 @@ public sealed class TextChunker
     /// - CJK period (。)
     /// - Paragraph breaks (\n\n+)
     /// </summary>
-    static readonly Regex SentenceBoundary = new(
+    [GeneratedRegex(
         @"(?<=[다요죠까군네나지]\.)\s+|" +        // Korean: 습니다. 해요. 하죠.
         @"(?<=습니다\.)\s+|" +                    // 합니다. (formal)
         @"(?<=(?<!\d)\.(?!\d))\s+(?=[A-Z가-힣])|" + // English/Korean: period then space then capital/한글
         @"(?<=。)\s*(?=\S)|" +                    // CJK period
-        @"\n{2,}",                                // Paragraph break
-        RegexOptions.Compiled);
+        @"\n{2,}")]                               // Paragraph break
+    private static partial Regex SentenceBoundary();
 
     /// <param name="chunkSize">Target chunk size in characters (default: 1000).</param>
     /// <param name="overlap">Overlap between adjacent chunks in characters (default: 150).</param>
@@ -96,8 +96,8 @@ public sealed class TextChunker
             if (trimmed.Length < minSize && results.Count > 0)
             {
                 // Merge short trailing chunk with previous
-                var prev = results[^1];
-                results[^1] = (prev.Content + " " + trimmed, prev.CharOffset);
+                var (prevContent, prevCharOffset) = results[^1];
+                results[^1] = (prevContent + " " + trimmed, prevCharOffset);
             }
             else
             {
@@ -117,7 +117,7 @@ public sealed class TextChunker
         var sentences = new List<(string Content, int Offset)>();
         var lastEnd = 0;
 
-        foreach (Match match in SentenceBoundary.Matches(text))
+        foreach (Match match in SentenceBoundary().Matches(text))
         {
             var sentenceEnd = match.Index;
             if (sentenceEnd > lastEnd)
@@ -159,7 +159,7 @@ public sealed class TextChunker
     static bool IsInsideParentheses(string text, int position)
     {
         var depth = 0;
-        for (int i = 0; i < position && i < text.Length; i++)
+        for (var i = 0; i < position && i < text.Length; i++)
         {
             switch (text[i])
             {
