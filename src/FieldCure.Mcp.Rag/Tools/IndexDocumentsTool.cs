@@ -207,7 +207,7 @@ public static class IndexDocumentsTool
         }
 
         // Apply to contextualizer: custom prompt or built-in default
-        var effectivePrompt = effectiveCustomPrompt ?? ChunkContextualizerHelper.SystemPrompt;
+        var effectivePrompt = effectiveCustomPrompt ?? ChunkContextualizerHelper.DefaultSystemPrompt;
         context.Contextualizer.SystemPrompt = effectivePrompt;
 
         // Store hash of the effective prompt for stale-index detection

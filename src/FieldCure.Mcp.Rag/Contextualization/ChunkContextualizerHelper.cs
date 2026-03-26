@@ -24,7 +24,9 @@ internal static class ChunkContextualizerHelper
         return Convert.ToHexString(hash)[..16].ToLowerInvariant();
     }
 
-    internal const string SystemPrompt =
+    internal const int DefaultMaxTokens = 500;
+
+    internal const string DefaultSystemPrompt =
         """
         You are a document indexing assistant. For each text chunk, produce:
         CONTEXT: 1-2 sentences describing what this chunk covers and where it sits

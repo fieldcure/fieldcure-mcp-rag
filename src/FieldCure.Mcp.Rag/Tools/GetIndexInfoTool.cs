@@ -38,7 +38,7 @@ public static class GetIndexInfoTool
 
         // Current built-in default hash for comparison
         var defaultPromptHash = ChunkContextualizerHelper.ComputePromptHash(
-            ChunkContextualizerHelper.SystemPrompt);
+            ChunkContextualizerHelper.DefaultSystemPrompt);
 
         var result = new
         {
@@ -47,7 +47,7 @@ public static class GetIndexInfoTool
             total_chunks = totalChunks,
             system_prompt = storedPrompt,          // null = using built-in default
             effective_prompt_hash = storedHash,     // hash of prompt used during last indexing
-            default_prompt = ChunkContextualizerHelper.SystemPrompt,
+            default_prompt = ChunkContextualizerHelper.DefaultSystemPrompt,
             default_prompt_hash = defaultPromptHash,
             is_prompt_stale = storedHash is not null && storedHash != defaultPromptHash && storedPrompt is null,
             contextualizer = context.Contextualizer.GetType().Name,

@@ -9,7 +9,7 @@ public sealed class NullChunkContextualizer : IChunkContextualizer
     /// <inheritdoc />
     public string SystemPrompt
     {
-        get => ChunkContextualizerHelper.SystemPrompt;
+        get => ChunkContextualizerHelper.DefaultSystemPrompt;
         set { } // No-op: null contextualizer doesn't use a prompt
     }
 

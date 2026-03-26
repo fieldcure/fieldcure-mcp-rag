@@ -27,7 +27,7 @@ public sealed class AnthropicChunkContextualizer : IChunkContextualizer
         _http.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
         _model = model;
         _systemPrompt = string.IsNullOrWhiteSpace(systemPrompt)
-            ? ChunkContextualizerHelper.SystemPrompt
+            ? ChunkContextualizerHelper.DefaultSystemPrompt
             : systemPrompt;
     }
 
@@ -36,7 +36,7 @@ public sealed class AnthropicChunkContextualizer : IChunkContextualizer
     {
         get => _systemPrompt;
         set => _systemPrompt = string.IsNullOrWhiteSpace(value)
-            ? ChunkContextualizerHelper.SystemPrompt
+            ? ChunkContextualizerHelper.DefaultSystemPrompt
             : value;
     }
 
@@ -56,7 +56,7 @@ public sealed class AnthropicChunkContextualizer : IChunkContextualizer
             var request = new
             {
                 model = _model,
-                max_tokens = 300,
+                max_tokens = ChunkContextualizerHelper.DefaultMaxTokens,
                 system = _systemPrompt,
                 messages = new[]
                 {

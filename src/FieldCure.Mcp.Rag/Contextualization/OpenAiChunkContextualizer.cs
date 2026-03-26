@@ -25,7 +25,7 @@ public sealed class OpenAiChunkContextualizer : IChunkContextualizer
         _http = new HttpClient { BaseAddress = new Uri(baseUrl.TrimEnd('/')) };
         _model = model;
         _systemPrompt = string.IsNullOrWhiteSpace(systemPrompt)
-            ? ChunkContextualizerHelper.SystemPrompt
+            ? ChunkContextualizerHelper.DefaultSystemPrompt
             : systemPrompt;
 
         if (!string.IsNullOrEmpty(apiKey))
@@ -38,7 +38,7 @@ public sealed class OpenAiChunkContextualizer : IChunkContextualizer
     {
         get => _systemPrompt;
         set => _systemPrompt = string.IsNullOrWhiteSpace(value)
-            ? ChunkContextualizerHelper.SystemPrompt
+            ? ChunkContextualizerHelper.DefaultSystemPrompt
             : value;
     }
 
@@ -64,7 +64,7 @@ public sealed class OpenAiChunkContextualizer : IChunkContextualizer
                     new { role = "user", content = prompt }
                 },
                 temperature = 0.0,
-                max_tokens = 300
+                max_tokens = ChunkContextualizerHelper.DefaultMaxTokens
             };
 
             var response = await _http.PostAsJsonAsync("/v1/chat/completions", request, ct);
