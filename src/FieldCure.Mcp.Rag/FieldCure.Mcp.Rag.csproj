@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>0.3.0</Version>
+    <Version>0.4.0</Version>
     <PackageId>FieldCure.Mcp.Rag</PackageId>
 
     <Authors>Jong Hyun Kim</Authors>
@@ -41,7 +41,7 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.*" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.*" />
     <PackageReference Include="System.Net.Http.Json" Version="8.*" />
-    <PackageReference Include="FieldCure.DocumentParsers" Version="*" />
+    <PackageReference Include="FieldCure.DocumentParsers" Version="0.2.*" />
   </ItemGroup>
 
 </Project>

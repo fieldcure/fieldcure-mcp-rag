@@ -1,5 +1,9 @@
 ﻿# Release Notes
 
+## v0.4.0
+
+- **Fix DocumentParsers dependency** — pin to `0.2.*` to ensure XLSX/PPTX/HWPX parsers are included (v0.3.0 bundled v0.1.0 due to `Version="*"` resolving before NuGet indexing)
+
 ## v0.3.0
 
 AI-powered chunk contextualization and .NET 8.0 migration.
