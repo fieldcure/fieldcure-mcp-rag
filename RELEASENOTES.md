@@ -1,5 +1,15 @@
 ﻿# Release Notes
 
+## v0.7.0
+
+Parallel contextualization, shared constants, and indexing diagnostics.
+
+- **Parallel chunk contextualization** — `Parallel.ForEachAsync` with `MaxDegreeOfParallelism=4` for contextualizer API calls; ~4.5x speedup (172s → 38s on 41 chunks with gpt-4o-mini)
+- **NullChunkContextualizer fast path** — skips parallel overhead when no contextualizer model is configured
+- **Indexing timing log** — per-file and per-stage diagnostics written to `{dataRoot}/index_timing.log` (parse, chunk, context, embed, store)
+- **Shared `DefaultMaxTokens` constant** — contextualizer max_tokens raised from 300 → 500 to prevent KEYWORDS truncation on bilingual outputs
+- **Renamed `SystemPrompt` → `DefaultSystemPrompt`** — clearer naming for the built-in default prompt constant
+
 ## v0.6.0
 
 Per-folder system prompt with DB persistence and stale-index detection.
