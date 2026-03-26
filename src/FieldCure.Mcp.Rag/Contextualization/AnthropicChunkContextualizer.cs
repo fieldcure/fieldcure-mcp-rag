@@ -11,6 +11,7 @@ public sealed class AnthropicChunkContextualizer : IChunkContextualizer
 {
     private readonly HttpClient _http;
     private readonly string _model;
+    private readonly string _systemPrompt;
 
     /// <summary>
     /// Initializes the Anthropic contextualizer.
@@ -18,12 +19,16 @@ public sealed class AnthropicChunkContextualizer : IChunkContextualizer
     /// <param name="apiKey">Anthropic API key (x-api-key header).</param>
     /// <param name="model">Model identifier (e.g., "claude-haiku-4-5-20251001").</param>
     /// <param name="baseUrl">API base URL. Default: "https://api.anthropic.com".</param>
-    public AnthropicChunkContextualizer(string apiKey, string model, string baseUrl = "https://api.anthropic.com")
+    /// <param name="systemPrompt">Custom system prompt. Empty to use default.</param>
+    public AnthropicChunkContextualizer(string apiKey, string model, string baseUrl = "https://api.anthropic.com", string systemPrompt = "")
     {
         _http = new HttpClient { BaseAddress = new Uri(baseUrl.TrimEnd('/')) };
         _http.DefaultRequestHeaders.Add("x-api-key", apiKey);
         _http.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
         _model = model;
+        _systemPrompt = string.IsNullOrWhiteSpace(systemPrompt)
+            ? ChunkContextualizerHelper.SystemPrompt
+            : systemPrompt;
     }
 
     public async Task<string> EnrichAsync(
@@ -43,7 +48,7 @@ public sealed class AnthropicChunkContextualizer : IChunkContextualizer
             {
                 model = _model,
                 max_tokens = 300,
-                system = ChunkContextualizerHelper.SystemPrompt,
+                system = _systemPrompt,
                 messages = new[]
                 {
                     new { role = "user", content = prompt }

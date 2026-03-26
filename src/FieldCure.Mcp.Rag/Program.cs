@@ -57,6 +57,7 @@ var ctxProvider = Environment.GetEnvironmentVariable("CONTEXTUALIZER_PROVIDER") 
 var ctxBaseUrl = Environment.GetEnvironmentVariable("CONTEXTUALIZER_BASE_URL") ?? "";
 var ctxApiKey = Environment.GetEnvironmentVariable("CONTEXTUALIZER_API_KEY") ?? "";
 var ctxModel = Environment.GetEnvironmentVariable("CONTEXTUALIZER_MODEL") ?? "";
+var ctxSystemPrompt = Environment.GetEnvironmentVariable("CONTEXTUALIZER_SYSTEM_PROMPT") ?? "";
 
 if (string.IsNullOrEmpty(ctxModel))
 {
@@ -67,12 +68,13 @@ else if (ctxProvider.Equals("anthropic", StringComparison.OrdinalIgnoreCase))
     contextualizer = new AnthropicChunkContextualizer(
         apiKey: ctxApiKey,
         model: ctxModel,
-        baseUrl: string.IsNullOrEmpty(ctxBaseUrl) ? "https://api.anthropic.com" : ctxBaseUrl);
+        baseUrl: string.IsNullOrEmpty(ctxBaseUrl) ? "https://api.anthropic.com" : ctxBaseUrl,
+        systemPrompt: ctxSystemPrompt);
 }
 else
 {
     // "openai" (default) — covers OpenAI, Ollama, Groq, Gemini
-    contextualizer = new OpenAiChunkContextualizer(ctxBaseUrl, ctxModel, ctxApiKey);
+    contextualizer = new OpenAiChunkContextualizer(ctxBaseUrl, ctxModel, ctxApiKey, ctxSystemPrompt);
 }
 
 Console.Error.WriteLine($"Contextualizer: {contextualizer.GetType().Name} ({ctxModel})");

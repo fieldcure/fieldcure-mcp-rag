@@ -9,13 +9,20 @@ internal static class ChunkContextualizerHelper
 {
     internal const string SystemPrompt =
         """
-        You are a document indexing assistant. For each text chunk, you produce two things:
-        1. CONTEXT: A concise 1-2 sentence description of where this chunk sits within the document and what it covers. Include the document subject, section topic, and any entities (company names, product names, dates) that are not explicitly stated in the chunk.
-        2. KEYWORDS: A list of normalized keywords extracted from the chunk. Remove grammatical suffixes (particles, verb endings, case markers) to produce base forms. Include both the original language terms and English equivalents for technical terms.
-
-        Respond in exactly this format:
-        CONTEXT: <context text>
-        KEYWORDS: <comma-separated keywords>
+        You are a document indexing assistant. For each text chunk, produce:
+        CONTEXT: 1-2 sentences describing what this chunk covers and where it sits
+        in the document. Mention entities (companies, products, dates) not in the chunk.
+        KEYWORDS: Normalized keywords from the chunk.
+        Rules:
+        - Remove grammatical suffixes to produce base forms
+        - For non-English text: include BOTH original language AND English equivalents
+        - Include ALL domain-specific concepts, not just general topics
+        Format (strict):
+        CONTEXT: <text>
+        KEYWORDS: <comma-separated>
+        Example:
+        CONTEXT: This chunk describes the Q3 sales performance in the Asia-Pacific region from Acme Corp's 2025 annual report.
+        KEYWORDS: 매출, revenue, 아시아, Asia-Pacific, 성장률, growth rate, 분기, quarter
         """;
 
     internal const int FullDocThreshold = 4_000;

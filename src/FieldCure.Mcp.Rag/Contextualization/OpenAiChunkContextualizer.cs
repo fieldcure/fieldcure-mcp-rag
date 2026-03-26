@@ -11,6 +11,7 @@ public sealed class OpenAiChunkContextualizer : IChunkContextualizer
 {
     private readonly HttpClient _http;
     private readonly string _model;
+    private readonly string _systemPrompt;
 
     /// <summary>
     /// Initializes the contextualizer.
@@ -18,10 +19,14 @@ public sealed class OpenAiChunkContextualizer : IChunkContextualizer
     /// <param name="baseUrl">API base URL (e.g., "http://localhost:11434" for Ollama).</param>
     /// <param name="model">Model identifier (e.g., "gemma3:4b").</param>
     /// <param name="apiKey">API key. Empty string for local servers.</param>
-    public OpenAiChunkContextualizer(string baseUrl, string model, string apiKey = "")
+    /// <param name="systemPrompt">Custom system prompt. Empty to use default.</param>
+    public OpenAiChunkContextualizer(string baseUrl, string model, string apiKey = "", string systemPrompt = "")
     {
         _http = new HttpClient { BaseAddress = new Uri(baseUrl.TrimEnd('/')) };
         _model = model;
+        _systemPrompt = string.IsNullOrWhiteSpace(systemPrompt)
+            ? ChunkContextualizerHelper.SystemPrompt
+            : systemPrompt;
 
         if (!string.IsNullOrEmpty(apiKey))
             _http.DefaultRequestHeaders.Authorization =
@@ -46,7 +51,7 @@ public sealed class OpenAiChunkContextualizer : IChunkContextualizer
                 model = _model,
                 messages = new[]
                 {
-                    new { role = "system", content = ChunkContextualizerHelper.SystemPrompt },
+                    new { role = "system", content = _systemPrompt },
                     new { role = "user", content = prompt }
                 },
                 temperature = 0.0,

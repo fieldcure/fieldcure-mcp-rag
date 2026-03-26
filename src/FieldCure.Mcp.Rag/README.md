@@ -91,7 +91,7 @@ DOCX, HWPX, XLSX, PPTX, TXT, MD — auto-extends when new parsers are added to F
 | `EMBEDDING_MODEL` | `nomic-embed-text` | Model identifier |
 | `EMBEDDING_DIMENSION` | `0` (auto-detect) | Vector dimension |
 
-### Chunk Contextualization (v0.3.0)
+### Chunk Contextualization (v0.3.0+)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -99,8 +99,11 @@ DOCX, HWPX, XLSX, PPTX, TXT, MD — auto-extends when new parsers are added to F
 | `CONTEXTUALIZER_BASE_URL` | *(empty)* | API base URL (e.g., `http://localhost:11434` for Ollama) |
 | `CONTEXTUALIZER_API_KEY` | *(empty)* | API key (empty for local servers) |
 | `CONTEXTUALIZER_MODEL` | *(empty)* | Model identifier. If empty, contextualization is disabled |
+| `CONTEXTUALIZER_SYSTEM_PROMPT` | *(built-in)* | Custom system prompt for domain-specific keyword extraction. If empty, uses the default prompt |
 
 When configured, each chunk is enriched with AI-generated context and normalized keywords during indexing. Search uses enriched text; responses return original text.
+
+Custom system prompts allow domain-specific optimization — e.g., an EIS researcher may want different keyword extraction than a legal professional.
 
 ## Data Storage
 
