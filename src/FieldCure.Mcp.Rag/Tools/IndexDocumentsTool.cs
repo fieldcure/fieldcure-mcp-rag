@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.Json;
 using FieldCure.DocumentParsers;
@@ -14,6 +15,8 @@ namespace FieldCure.Mcp.Rag.Tools;
 [McpServerToolType]
 public static class IndexDocumentsTool
 {
+    const int MaxContextualizationParallelism = 4;
+
     static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     static readonly HashSet<string> PlainTextExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -80,6 +83,13 @@ public static class IndexDocumentsTool
             removed++;
         }
 
+        var totalSw = Stopwatch.StartNew();
+        var (tParse, tChunk, tContext, tEmbed, tStore) = (0L, 0L, 0L, 0L, 0L);
+        var logPath = Path.Combine(context.DataRoot, "index_timing.log");
+        using var logWriter = new StreamWriter(logPath, append: true);
+        logWriter.AutoFlush = true;
+        logWriter.WriteLine($"--- {DateTime.Now:yyyy-MM-dd HH:mm:ss} force={force} files={files.Count} ---");
+
         foreach (var filePath in files)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -101,6 +111,9 @@ public static class IndexDocumentsTool
                     }
                 }
 
+                var fileSw = Stopwatch.StartNew();
+                var sw = Stopwatch.StartNew();
+
                 // Parse document text
                 var text = await ParseDocumentAsync(filePath);
                 if (string.IsNullOrWhiteSpace(text))
@@ -108,40 +121,67 @@ public static class IndexDocumentsTool
                     skipped++;
                     continue;
                 }
+                var parsedMs = sw.ElapsedMilliseconds;
+                tParse += parsedMs;
 
                 // Delete old chunks for this file
                 await store.DeleteBySourcePathAsync(relativePath);
 
                 // Chunk the text
+                sw.Restart();
                 var chunks = chunker.Split(text);
                 if (chunks.Count == 0)
                 {
                     skipped++;
                     continue;
                 }
+                var chunkedMs = sw.ElapsedMilliseconds;
+                tChunk += chunkedMs;
 
-                // Contextualize chunks
+                // Contextualize chunks (parallel for real contextualizers, sequential for NullChunkContextualizer)
+                sw.Restart();
                 var contextualizer = context.Contextualizer;
                 var documentContext = ChunkContextualizerHelper.TruncateDocumentContext(text);
                 var fileName = Path.GetFileName(filePath);
 
                 var enrichedTexts = new string[chunks.Count];
-                for (var i = 0; i < chunks.Count; i++)
+                if (contextualizer is NullChunkContextualizer)
                 {
-                    enrichedTexts[i] = await contextualizer.EnrichAsync(
-                        chunks[i].Content,
-                        documentContext,
-                        fileName,
-                        i,
-                        chunks.Count,
-                        cancellationToken);
+                    for (var i = 0; i < chunks.Count; i++)
+                        enrichedTexts[i] = chunks[i].Content;
                 }
+                else
+                {
+                    await Parallel.ForEachAsync(
+                        Enumerable.Range(0, chunks.Count),
+                        new ParallelOptions
+                        {
+                            MaxDegreeOfParallelism = MaxContextualizationParallelism,
+                            CancellationToken = cancellationToken,
+                        },
+                        async (i, ct) =>
+                        {
+                            enrichedTexts[i] = await contextualizer.EnrichAsync(
+                                chunks[i].Content,
+                                documentContext,
+                                fileName,
+                                i,
+                                chunks.Count,
+                                ct);
+                        });
+                }
+                var contextMs = sw.ElapsedMilliseconds;
+                tContext += contextMs;
 
                 // Batch embed using enriched text
+                sw.Restart();
                 var embeddings = await embeddingProvider.EmbedBatchAsync(
                     enrichedTexts, cancellationToken);
+                var embedMs = sw.ElapsedMilliseconds;
+                tEmbed += embedMs;
 
                 // Upsert chunks with original content + enriched text
+                sw.Restart();
                 var pathHash = ComputeStringHash(relativePath);
                 for (var i = 0; i < chunks.Count; i++)
                 {
@@ -155,10 +195,18 @@ public static class IndexDocumentsTool
                     };
                     await store.UpsertChunkAsync(chunk, embeddings[i], embeddingProvider.ModelId, enrichedTexts[i]);
                 }
+                var storeMs = sw.ElapsedMilliseconds;
+                tStore += storeMs;
 
                 await store.SetFileHashAsync(relativePath, hash);
                 indexed++;
                 totalChunks += chunks.Count;
+
+                var line = $"[Index] {fileName} — {chunks.Count} chunks, " +
+                    $"parse={parsedMs}ms chunk={chunkedMs}ms context={contextMs}ms embed={embedMs}ms store={storeMs}ms " +
+                    $"total={fileSw.ElapsedMilliseconds}ms";
+                Console.Error.WriteLine(line);
+                logWriter.WriteLine(line);
             }
             catch (Exception ex)
             {
@@ -166,6 +214,12 @@ public static class IndexDocumentsTool
                 errors.Add($"{relativePath}: {ex.Message}");
             }
         }
+
+        totalSw.Stop();
+        var summary = $"[Index] Done — {indexed} files, {totalChunks} chunks in {totalSw.ElapsedMilliseconds}ms | " +
+            $"parse={tParse}ms chunk={tChunk}ms context={tContext}ms embed={tEmbed}ms store={tStore}ms";
+        Console.Error.WriteLine(summary);
+        logWriter.WriteLine(summary);
 
         var result = new
         {
