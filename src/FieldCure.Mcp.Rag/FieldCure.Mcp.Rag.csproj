@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>0.6.0</Version>
+    <Version>0.6.1</Version>
     <PackageId>FieldCure.Mcp.Rag</PackageId>
 
     <Authors>Jong Hyun Kim</Authors>
@@ -20,7 +20,7 @@
     <RepositoryUrl>https://github.com/fieldcure/fieldcure-mcp-rag</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>mcp;rag;embedding;vector-search;bm25;hybrid-search;ai;contextualization;chunk-enrichment</PackageTags>
-    <PackageReleaseNotes>v0.6.0: Per-folder system prompt with DB persistence. Prompt priority: tool param &gt; DB &gt; env var &gt; built-in. Stale-index detection via prompt hash. New get_index_info tool for host applications.</PackageReleaseNotes>
+    <PackageReleaseNotes>v0.6.1: Fix packaging — include get_index_info tool and index_metadata table that were missing from v0.6.0 build.</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>Logo.png</PackageIcon>
 
