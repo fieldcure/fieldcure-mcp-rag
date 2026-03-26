@@ -11,7 +11,7 @@ public sealed class AnthropicChunkContextualizer : IChunkContextualizer
 {
     private readonly HttpClient _http;
     private readonly string _model;
-    private readonly string _systemPrompt;
+    private string _systemPrompt;
 
     /// <summary>
     /// Initializes the Anthropic contextualizer.
@@ -29,6 +29,15 @@ public sealed class AnthropicChunkContextualizer : IChunkContextualizer
         _systemPrompt = string.IsNullOrWhiteSpace(systemPrompt)
             ? ChunkContextualizerHelper.SystemPrompt
             : systemPrompt;
+    }
+
+    /// <summary>Gets or sets the system prompt used for enrichment.</summary>
+    public string SystemPrompt
+    {
+        get => _systemPrompt;
+        set => _systemPrompt = string.IsNullOrWhiteSpace(value)
+            ? ChunkContextualizerHelper.SystemPrompt
+            : value;
     }
 
     public async Task<string> EnrichAsync(

@@ -6,6 +6,13 @@ namespace FieldCure.Mcp.Rag.Contextualization;
 /// </summary>
 public sealed class NullChunkContextualizer : IChunkContextualizer
 {
+    /// <inheritdoc />
+    public string SystemPrompt
+    {
+        get => ChunkContextualizerHelper.SystemPrompt;
+        set { } // No-op: null contextualizer doesn't use a prompt
+    }
+
     public Task<string> EnrichAsync(
         string chunkText,
         string? documentContext,

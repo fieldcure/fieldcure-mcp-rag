@@ -11,7 +11,7 @@ public sealed class OpenAiChunkContextualizer : IChunkContextualizer
 {
     private readonly HttpClient _http;
     private readonly string _model;
-    private readonly string _systemPrompt;
+    private string _systemPrompt;
 
     /// <summary>
     /// Initializes the contextualizer.
@@ -31,6 +31,15 @@ public sealed class OpenAiChunkContextualizer : IChunkContextualizer
         if (!string.IsNullOrEmpty(apiKey))
             _http.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+    }
+
+    /// <summary>Gets or sets the system prompt used for enrichment.</summary>
+    public string SystemPrompt
+    {
+        get => _systemPrompt;
+        set => _systemPrompt = string.IsNullOrWhiteSpace(value)
+            ? ChunkContextualizerHelper.SystemPrompt
+            : value;
     }
 
     public async Task<string> EnrichAsync(

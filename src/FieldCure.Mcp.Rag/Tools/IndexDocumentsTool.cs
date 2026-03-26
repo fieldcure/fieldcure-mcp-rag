@@ -36,12 +36,19 @@ public static class IndexDocumentsTool
         RagContext context,
         [Description("If true, re-indexes all files regardless of change detection.")]
         bool force = false,
+        [Description("Custom system prompt for chunk contextualization. " +
+                     "If provided, overrides the stored and default prompts. " +
+                     "Set to null to use the stored prompt or built-in default.")]
+        string? system_prompt = null,
         CancellationToken cancellationToken = default)
     {
         var store = context.Store;
         var embeddingProvider = context.EmbeddingProvider;
         var chunker = context.Chunker;
         var contextFolder = context.ContextFolder;
+
+        // Resolve effective system prompt: parameter > DB > env > built-in
+        await ResolveAndApplyPromptAsync(context, store, system_prompt, force);
 
         var indexed = 0;
         var skipped = 0;
@@ -171,6 +178,41 @@ public static class IndexDocumentsTool
         };
 
         return JsonSerializer.Serialize(result, JsonOptions);
+    }
+
+    /// <summary>
+    /// Resolves the effective system prompt using the priority chain:
+    /// tool parameter > DB stored value > env var > built-in default.
+    /// Updates the contextualizer's prompt and stores metadata in DB.
+    /// </summary>
+    static async Task ResolveAndApplyPromptAsync(
+        RagContext context,
+        SqliteVectorStore store,
+        string? paramPrompt,
+        bool force)
+    {
+        string? effectiveCustomPrompt;
+
+        if (!string.IsNullOrWhiteSpace(paramPrompt))
+        {
+            // Explicit parameter: save to DB as user customization
+            effectiveCustomPrompt = paramPrompt;
+            await store.SetMetadataAsync(ChunkContextualizerHelper.MetaKeySystemPrompt, paramPrompt);
+        }
+        else
+        {
+            // No parameter: read from DB (null = use built-in default)
+            effectiveCustomPrompt = await store.GetMetadataAsync(
+                ChunkContextualizerHelper.MetaKeySystemPrompt);
+        }
+
+        // Apply to contextualizer: custom prompt or built-in default
+        var effectivePrompt = effectiveCustomPrompt ?? ChunkContextualizerHelper.SystemPrompt;
+        context.Contextualizer.SystemPrompt = effectivePrompt;
+
+        // Store hash of the effective prompt for stale-index detection
+        var hash = ChunkContextualizerHelper.ComputePromptHash(effectivePrompt);
+        await store.SetMetadataAsync(ChunkContextualizerHelper.MetaKeyPromptHash, hash);
     }
 
     static async Task<string> ParseDocumentAsync(string filePath)

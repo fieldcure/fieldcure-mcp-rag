@@ -65,6 +65,11 @@ public sealed class SqliteVectorStore : IDisposable
                 content,
                 tokenize = 'trigram'
             );
+
+            CREATE TABLE IF NOT EXISTS index_metadata (
+                key   TEXT PRIMARY KEY,
+                value TEXT
+            );
             """;
         cmd.ExecuteNonQuery();
 
@@ -439,6 +444,59 @@ public sealed class SqliteVectorStore : IDisposable
         // Wrap in double quotes to handle special characters in FTS5
         return $"\"{token.Replace("\"", "\"\"")}\"";
     }
+
+    #region Metadata
+
+    /// <summary>Gets a metadata value by key, or null if not found.</summary>
+    public async Task<string?> GetMetadataAsync(string key)
+    {
+        await using var conn = OpenConnection();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT value FROM index_metadata WHERE key = @key";
+        cmd.Parameters.AddWithValue("@key", key);
+        var result = await cmd.ExecuteScalarAsync();
+        return result as string;
+    }
+
+    /// <summary>Sets a metadata key-value pair (upsert).</summary>
+    public async Task SetMetadataAsync(string key, string? value)
+    {
+        await using var conn = OpenConnection();
+        await using var cmd = conn.CreateCommand();
+
+        if (value is null)
+        {
+            cmd.CommandText = "DELETE FROM index_metadata WHERE key = @key";
+            cmd.Parameters.AddWithValue("@key", key);
+        }
+        else
+        {
+            cmd.CommandText = """
+                INSERT OR REPLACE INTO index_metadata (key, value)
+                VALUES (@key, @value)
+                """;
+            cmd.Parameters.AddWithValue("@key", key);
+            cmd.Parameters.AddWithValue("@value", value);
+        }
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>Gets all metadata as a dictionary.</summary>
+    public async Task<Dictionary<string, string>> GetAllMetadataAsync()
+    {
+        await using var conn = OpenConnection();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT key, value FROM index_metadata";
+
+        var result = new Dictionary<string, string>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            result[reader.GetString(0)] = reader.GetString(1);
+        return result;
+    }
+
+    #endregion
 
     public void Dispose()
     {

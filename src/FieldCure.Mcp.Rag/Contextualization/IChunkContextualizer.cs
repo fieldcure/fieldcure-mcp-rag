@@ -7,6 +7,12 @@ namespace FieldCure.Mcp.Rag.Contextualization;
 public interface IChunkContextualizer
 {
     /// <summary>
+    /// Gets or sets the system prompt used for chunk enrichment.
+    /// Set to null or empty to use the built-in default.
+    /// </summary>
+    string SystemPrompt { get; set; }
+
+    /// <summary>
     /// Enriches a chunk with contextual information.
     /// </summary>
     /// <param name="chunkText">Original chunk text.</param>

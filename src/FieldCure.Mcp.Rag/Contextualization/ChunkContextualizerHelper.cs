@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 
 namespace FieldCure.Mcp.Rag.Contextualization;
@@ -7,6 +8,22 @@ namespace FieldCure.Mcp.Rag.Contextualization;
 /// </summary>
 internal static class ChunkContextualizerHelper
 {
+    /// <summary>Metadata key for user-customized system prompt (null = use built-in default).</summary>
+    internal const string MetaKeySystemPrompt = "system_prompt";
+
+    /// <summary>Metadata key for SHA256 hash of the effective prompt used during last indexing.</summary>
+    internal const string MetaKeyPromptHash = "effective_prompt_hash";
+
+    /// <summary>
+    /// Computes a short SHA256 hash of the given prompt text (first 16 hex chars).
+    /// </summary>
+    internal static string ComputePromptHash(string prompt)
+    {
+        var bytes = Encoding.UTF8.GetBytes(prompt);
+        var hash = SHA256.HashData(bytes);
+        return Convert.ToHexString(hash)[..16].ToLowerInvariant();
+    }
+
     internal const string SystemPrompt =
         """
         You are a document indexing assistant. For each text chunk, produce:
