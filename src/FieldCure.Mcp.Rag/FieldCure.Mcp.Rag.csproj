@@ -14,12 +14,12 @@
     <Authors>Jong Hyun Kim</Authors>
     <Company>Fieldcure Co., Ltd.</Company>
     <Copyright>Copyright (c) 2026 Fieldcure Co., Ltd.</Copyright>
-    <Description>MCP RAG server with hybrid BM25 + vector search. Chunks documents, generates embeddings, and performs keyword (FTS5) and semantic (cosine similarity) search with Reciprocal Rank Fusion.</Description>
+    <Description>MCP RAG server with hybrid BM25 + vector search and AI-powered chunk contextualization. Chunks documents, enriches chunks with AI-generated context and keywords, generates embeddings, and performs keyword (FTS5) and semantic (cosine similarity) search with Reciprocal Rank Fusion.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/fieldcure/fieldcure-mcp-rag</PackageProjectUrl>
     <RepositoryUrl>https://github.com/fieldcure/fieldcure-mcp-rag</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageTags>mcp;rag;embedding;vector-search;bm25;hybrid-search;ai</PackageTags>
+    <PackageTags>mcp;rag;embedding;vector-search;bm25;hybrid-search;ai;contextualization;chunk-enrichment</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>Logo.png</PackageIcon>
 

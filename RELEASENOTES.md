@@ -1,5 +1,19 @@
 ﻿# Release Notes
 
+## v0.3.0
+
+AI-powered chunk contextualization and .NET 8.0 migration.
+
+- **Chunk contextualization** — AI-generated context descriptions and normalized keywords per chunk during indexing (`IChunkContextualizer`)
+- **OpenAI-compatible contextualizer** — supports Ollama, OpenAI, Groq, and any `/v1/chat/completions` endpoint (`OpenAiChunkContextualizer`)
+- **Anthropic contextualizer** — supports Claude Haiku, Sonnet, Opus via `/v1/messages` endpoint (`AnthropicChunkContextualizer`)
+- **Enriched search** — FTS5 and vector embedding use enriched text; original content preserved for responses
+- **Graceful degradation** — contextualization disabled when `CONTEXTUALIZER_MODEL` is empty (v0.2.0 behavior)
+- **Error tolerance** — AI failures fall back to original chunk text without interrupting indexing
+- **v0.2.0 DB migration** — `enriched` column added automatically via `ALTER TABLE`; existing chunks initialized with original content
+- **net9.0 → net8.0** — unified target framework with FieldCure.DocumentParsers
+- **XLSX / PPTX support** — via FieldCure.DocumentParsers v0.2.0 (Excel spreadsheets and PowerPoint presentations)
+
 ## v0.2.0
 
 Hybrid BM25 + Vector search with Reciprocal Rank Fusion.

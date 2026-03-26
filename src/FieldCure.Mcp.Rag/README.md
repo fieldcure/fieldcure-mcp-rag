@@ -78,7 +78,7 @@ Embedding server is optional. Without it, BM25 keyword search still works.
 
 ## Supported Formats
 
-DOCX, HWPX, TXT, MD — auto-extends when new parsers are added to FieldCure.DocumentParsers.
+DOCX, HWPX, XLSX, PPTX, TXT, MD — auto-extends when new parsers are added to FieldCure.DocumentParsers.
 
 ## Environment Variables
 

@@ -122,6 +122,8 @@ Document formats are provided by [FieldCure.DocumentParsers](https://github.com/
 
 - **DOCX** — Microsoft Word
 - **HWPX** — Korean standard document (OWPML)
+- **XLSX** — Excel spreadsheets (v0.3.0)
+- **PPTX** — PowerPoint presentations (v0.3.0)
 - **TXT, MD** — Plain text / Markdown
 
 Additional formats are automatically supported when new parsers are registered.
