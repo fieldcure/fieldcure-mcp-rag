@@ -1,5 +1,10 @@
 ﻿# Release Notes
 
+## v0.5.0
+
+- **Improved default contextualization prompt** — bilingual keyword extraction (original language + English), domain-specific concept extraction, grammatical suffix removal with concrete example
+- **Custom system prompt** — `CONTEXTUALIZER_SYSTEM_PROMPT` environment variable for domain-specific keyword extraction (empty = built-in default)
+
 ## v0.4.0
 
 - **Fix DocumentParsers dependency** — pin to `0.2.*` to ensure XLSX/PPTX/HWPX parsers are included (v0.3.0 bundled v0.1.0 due to `Version="*"` resolving before NuGet indexing)
