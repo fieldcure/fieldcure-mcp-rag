@@ -1,5 +1,17 @@
 ﻿# Release Notes
 
+## v0.6.0
+
+Per-folder system prompt with DB persistence and stale-index detection.
+
+- **`index_metadata` table** — key-value store in SQLite for index configuration
+- **Per-folder system prompt** — `index_documents` accepts optional `system_prompt` parameter; stored in DB per folder
+- **Prompt priority chain** — tool parameter > DB stored value > env var > built-in default
+- **Stale-index detection** — `effective_prompt_hash` stored in DB; `get_index_info` returns `is_prompt_stale` when built-in prompt has been updated since last indexing
+- **`get_index_info` tool** — returns folder stats, prompt configuration, and stale detection flag (internal, for host application use)
+- **`IChunkContextualizer.SystemPrompt` property** — runtime-settable on all contextualizer implementations
+- **Smart default handling** — only custom prompts stored in DB; null = use built-in default (code updates auto-apply on re-index)
+
 ## v0.5.0
 
 - **Improved default contextualization prompt** — bilingual keyword extraction (original language + English), domain-specific concept extraction, grammatical suffix removal with concrete example

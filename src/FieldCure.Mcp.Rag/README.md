@@ -58,13 +58,14 @@ Add to `.vscode/mcp.json`:
 }
 ```
 
-## Tools (3)
+## Tools (4)
 
 | Tool | Description |
 |------|-------------|
-| `index_documents` | Index all supported documents (incremental, SHA256 change detection) |
+| `index_documents` | Index all supported documents (incremental, SHA256 change detection). Accepts optional `system_prompt` for per-folder contextualization |
 | `search_documents` | Hybrid BM25 + vector search with Reciprocal Rank Fusion |
 | `get_document_chunk` | Retrieve full content of a specific chunk by ID |
+| `get_index_info` | Returns index metadata (file/chunk counts, prompt config, stale-index detection). Internal — for host application use |
 
 ## Search Modes
 
@@ -105,10 +106,23 @@ When configured, each chunk is enriched with AI-generated context and normalized
 
 Custom system prompts allow domain-specific optimization — e.g., an EIS researcher may want different keyword extraction than a legal professional.
 
+### Per-Folder System Prompt (v0.6.0+)
+
+The `index_documents` tool accepts an optional `system_prompt` parameter for per-folder customization. Prompt resolution priority:
+
+1. **Tool parameter** — explicit `system_prompt` in `index_documents` call (saved to DB)
+2. **DB stored value** — previously saved custom prompt for this folder
+3. **Environment variable** — `CONTEXTUALIZER_SYSTEM_PROMPT`
+4. **Built-in default** — code-level default prompt
+
+Only custom prompts are stored in DB. When `system_prompt` is null, the built-in default is used — so code updates automatically improve existing indices on re-index.
+
+The `get_index_info` tool returns `is_prompt_stale: true` when the index was built with an older built-in prompt (hash mismatch), enabling the host app to notify users.
+
 ## Data Storage
 
 Index data is stored at `%LOCALAPPDATA%\FieldCure\Mcp.Rag\{folder_hash}\`:
-- `rag_index.db` — SQLite database (chunks, embeddings, FTS5 index, file hashes)
+- `rag_index.db` — SQLite database (chunks, embeddings, FTS5 index, file hashes, index metadata)
 
 Existing v0.1.0 indices at `{contextFolder}/.rag/` are auto-migrated on first run.
 
