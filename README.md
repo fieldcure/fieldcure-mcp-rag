@@ -4,6 +4,7 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that in
 
 ## Features
 
+- **Cross-process indexing lock** — SQLite-based mutex prevents concurrent indexing; stale PID auto-cleanup (v0.9.0)
 - **Indexing progress** — MCP `notifications/progress` during indexing for real-time progress bar display (v0.8.0)
 - **Chunk Contextualization** — AI-powered context + keyword enrichment per chunk for improved search (v0.3.0)
 - **Hybrid search** — BM25 keyword (FTS5) + semantic vector search, fused via Reciprocal Rank Fusion (RRF)
@@ -108,7 +109,7 @@ When configured, the contextualizer enriches each chunk with AI-generated contex
 | `index_documents` | Index all supported documents (incremental). Reports progress via MCP notifications |
 | `search_documents` | Hybrid BM25 + vector search with RRF fusion |
 | `get_document_chunk` | Retrieve full content of a specific chunk by ID |
-| `get_index_info` | Index metadata (file/chunk counts, prompt config, stale detection) |
+| `get_index_info` | Index metadata (file/chunk counts, prompt config, stale detection, indexing lock status) |
 
 ### Search Modes
 
@@ -168,7 +169,7 @@ src/FieldCure.Mcp.Rag/
 ## Data Storage
 
 Index data is stored at `%LOCALAPPDATA%\FieldCure\Mcp.Rag\{folder_hash}\`:
-- `rag_index.db` — SQLite database (chunks, embeddings, FTS5 index, file hashes)
+- `rag_index.db` — SQLite database (chunks, embeddings, FTS5 index, file hashes, indexing lock)
 
 Existing v0.1.0 indices at `{contextFolder}/.rag/` are auto-migrated on first run.
 

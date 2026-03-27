@@ -62,10 +62,10 @@ Add to `.vscode/mcp.json`:
 
 | Tool | Description |
 |------|-------------|
-| `index_documents` | Index all supported documents (incremental, SHA256 change detection). Reports progress via MCP `notifications/progress`. Accepts optional `system_prompt` for per-folder contextualization |
+| `index_documents` | Index all supported documents (incremental, SHA256 change detection). Reports progress via MCP `notifications/progress`. Cross-process lock prevents concurrent indexing. Accepts optional `system_prompt` for per-folder contextualization |
 | `search_documents` | Hybrid BM25 + vector search with Reciprocal Rank Fusion |
 | `get_document_chunk` | Retrieve full content of a specific chunk by ID |
-| `get_index_info` | Returns index metadata (file/chunk counts, prompt config, stale-index detection). Internal — for host application use |
+| `get_index_info` | Returns index metadata (file/chunk counts, prompt config, stale-index detection, indexing lock status). Internal — for host application use |
 
 ## Search Modes
 
@@ -122,7 +122,7 @@ The `get_index_info` tool returns `is_prompt_stale: true` when the index was bui
 ## Data Storage
 
 Index data is stored at `%LOCALAPPDATA%\FieldCure\Mcp.Rag\{folder_hash}\`:
-- `rag_index.db` — SQLite database (chunks, embeddings, FTS5 index, file hashes, index metadata)
+- `rag_index.db` — SQLite database (chunks, embeddings, FTS5 index, file hashes, index metadata, indexing lock)
 
 Existing v0.1.0 indices at `{contextFolder}/.rag/` are auto-migrated on first run.
 

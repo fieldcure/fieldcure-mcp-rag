@@ -1,5 +1,16 @@
 ﻿# Release Notes
 
+## v0.9.0
+
+Cross-process indexing lock for multi-tab safety.
+
+- **`_indexing_lock` table** — SQLite singleton-row mutex prevents concurrent indexing from multiple processes on the same DB
+- **`AcquireLock` / `ReleaseLock`** — `index_documents` acquires lock before indexing, releases in `finally`; returns error if another live process holds the lock
+- **`UpdateProgress`** — per-file progress written to lock row during indexing
+- **Stale lock detection** — both `AcquireLock` and `GetLockInfo` check if lock holder PID is alive; dead processes are auto-cleaned
+- **`get_index_info` returns `is_indexing`** — includes `indexing_progress` object (`current`, `total`, `pid`) when another process is indexing
+- **Exception-free PID check** — uses `Process.GetProcesses()` instead of `Process.GetProcessById()` to avoid first-chance `Win32Exception`
+
 ## v0.8.0
 
 MCP progress notifications for indexing operations.
