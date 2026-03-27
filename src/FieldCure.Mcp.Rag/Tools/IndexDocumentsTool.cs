@@ -8,6 +8,7 @@ using FieldCure.Mcp.Rag.Contextualization;
 using FieldCure.Mcp.Rag.Embedding;
 using FieldCure.Mcp.Rag.Models;
 using FieldCure.Mcp.Rag.Storage;
+using ModelContextProtocol;
 using ModelContextProtocol.Server;
 
 namespace FieldCure.Mcp.Rag.Tools;
@@ -37,6 +38,7 @@ public static class IndexDocumentsTool
         "Supported formats: DOCX, HWPX, TXT, MD (auto-extends when new parsers are added).")]
     public static async Task<string> IndexDocuments(
         RagContext context,
+        IProgress<ProgressNotificationValue> progress,
         [Description("If true, re-indexes all files regardless of change detection.")]
         bool force = false,
         [Description("Custom system prompt for chunk contextualization. " +
@@ -90,6 +92,7 @@ public static class IndexDocumentsTool
         logWriter.AutoFlush = true;
         logWriter.WriteLine($"--- {DateTime.Now:yyyy-MM-dd HH:mm:ss} force={force} files={files.Count} ---");
 
+        var fileIndex = 0;
         foreach (var filePath in files)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -212,6 +215,16 @@ public static class IndexDocumentsTool
             {
                 failed++;
                 errors.Add($"{relativePath}: {ex.Message}");
+            }
+            finally
+            {
+                fileIndex++;
+                progress.Report(new ProgressNotificationValue
+                {
+                    Progress = fileIndex,
+                    Total = files.Count,
+                    Message = $"{Path.GetFileName(filePath)} ({fileIndex}/{files.Count})",
+                });
             }
         }
 
