@@ -1,5 +1,20 @@
 ﻿# Release Notes
 
+## v0.10.0 (2026-03-27)
+
+### Added
+
+- **PDF indexing support** — `.pdf` files now indexed and searchable via `FieldCure.DocumentParsers.Pdf`; text extracted page-by-page with `## Page N` headers
+- **Math equation indexing** — DOCX and HWPX math equations extracted as `[math: LaTeX]` blocks via `FieldCure.DocumentParsers` 0.3.x; equations are now searchable in the RAG index
+
+### Changed
+
+- `FieldCure.DocumentParsers` 0.2.x → 0.3.x
+- `FieldCure.DocumentParsers.Pdf` 0.1.x → 0.2.x
+- `ModelContextProtocol` 0.2.x → 1.1.0
+
+---
+
 ## v0.9.0
 
 Cross-process indexing lock for multi-tab safety.

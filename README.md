@@ -4,6 +4,8 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that in
 
 ## Features
 
+- **PDF indexing** — `.pdf` files indexed and searchable with page-by-page text extraction (v0.10.0)
+- **Math equation indexing** — DOCX/HWPX math equations extracted as `[math: LaTeX]` blocks and searchable (v0.10.0)
 - **Cross-process indexing lock** — SQLite-based mutex prevents concurrent indexing; stale PID auto-cleanup (v0.9.0)
 - **Indexing progress** — MCP `notifications/progress` during indexing for real-time progress bar display (v0.8.0)
 - **Chunk Contextualization** — AI-powered context + keyword enrichment per chunk for improved search (v0.3.0)
@@ -121,12 +123,13 @@ When configured, the contextualizer enriches each chunk with AI-generated contex
 
 ### Supported Formats
 
-Document formats are provided by [FieldCure.DocumentParsers](https://github.com/fieldcure/fieldcure-assiststudio):
+Document formats are provided by [FieldCure.DocumentParsers](https://github.com/fieldcure/fieldcure-document-parsers):
 
-- **DOCX** — Microsoft Word
-- **HWPX** — Korean standard document (OWPML)
+- **DOCX** — Microsoft Word (with math equation extraction)
+- **HWPX** — Korean standard document (OWPML, with math equation extraction)
 - **XLSX** — Excel spreadsheets (v0.3.0)
 - **PPTX** — PowerPoint presentations (v0.3.0)
+- **PDF** — PDF text extraction with `## Page N` headers (v0.10.0)
 - **TXT, MD** — Plain text / Markdown
 
 Additional formats are automatically supported when new parsers are registered.

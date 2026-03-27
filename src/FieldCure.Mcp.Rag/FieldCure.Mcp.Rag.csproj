@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>0.9.0</Version>
+    <Version>0.10.0</Version>
     <PackageId>FieldCure.Mcp.Rag</PackageId>
 
     <Authors>Jong Hyun Kim</Authors>
@@ -20,7 +20,7 @@
     <RepositoryUrl>https://github.com/fieldcure/fieldcure-mcp-rag</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>mcp;rag;embedding;vector-search;bm25;hybrid-search;ai;contextualization;chunk-enrichment</PackageTags>
-    <PackageReleaseNotes>v0.8.0: MCP progress notifications during indexing — clients can display a determinate progress bar (file X of Y).</PackageReleaseNotes>
+    <PackageReleaseNotes>v0.10.0: PDF indexing support via FieldCure.DocumentParsers.Pdf — PDF text extracted page-by-page with ## Page N headers.</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>Logo.png</PackageIcon>
 
@@ -38,12 +38,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="ModelContextProtocol" Version="0.2.*" />
+    <PackageReference Include="ModelContextProtocol" Version="1.1.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.*" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.*" />
     <PackageReference Include="System.Net.Http.Json" Version="8.*" />
-    <PackageReference Include="FieldCure.DocumentParsers" Version="0.2.*" />
-    <PackageReference Include="FieldCure.DocumentParsers.Pdf" Version="0.1.*" />
+    <PackageReference Include="FieldCure.DocumentParsers" Version="0.3.*" />
+    <PackageReference Include="FieldCure.DocumentParsers.Pdf" Version="0.2.*" />
   </ItemGroup>
 
 </Project>
