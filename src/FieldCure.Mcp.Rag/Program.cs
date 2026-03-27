@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using FieldCure.DocumentParsers.Pdf;
 using FieldCure.Mcp.Rag;
 using FieldCure.Mcp.Rag.Chunking;
 using FieldCure.Mcp.Rag.Contextualization;
@@ -9,6 +10,9 @@ using FieldCure.Mcp.Rag.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+
+// Register PDF parser
+DocumentParserFactoryExtensions.AddPdfSupport();
 
 // args[0] = context folder path (required)
 if (args.Length == 0)
