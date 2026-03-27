@@ -1,5 +1,12 @@
 ﻿# Release Notes
 
+## v0.8.0
+
+MCP progress notifications for indexing operations.
+
+- **Indexing progress notifications** — `index_documents` reports per-file progress via MCP `notifications/progress` protocol; clients passing a `progressToken` receive `(current, total, message)` updates for determinate progress bar display
+- **`IProgress<ProgressNotificationValue>` injection** — SDK auto-binds the progress reporter; no manual `McpServer` handling needed in the tool
+
 ## v0.7.0
 
 Parallel contextualization, shared constants, and indexing diagnostics.

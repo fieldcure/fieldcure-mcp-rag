@@ -96,7 +96,7 @@ builder.Services
         options.ServerInfo = new()
         {
             Name = "fieldcure-mcp-rag",
-            Version = "0.4.0",
+            Version = "0.8.0",
         };
     })
     .WithStdioServerTransport()

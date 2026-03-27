@@ -62,7 +62,7 @@ Add to `.vscode/mcp.json`:
 
 | Tool | Description |
 |------|-------------|
-| `index_documents` | Index all supported documents (incremental, SHA256 change detection). Accepts optional `system_prompt` for per-folder contextualization |
+| `index_documents` | Index all supported documents (incremental, SHA256 change detection). Reports progress via MCP `notifications/progress`. Accepts optional `system_prompt` for per-folder contextualization |
 | `search_documents` | Hybrid BM25 + vector search with Reciprocal Rank Fusion |
 | `get_document_chunk` | Retrieve full content of a specific chunk by ID |
 | `get_index_info` | Returns index metadata (file/chunk counts, prompt config, stale-index detection). Internal — for host application use |

@@ -4,10 +4,11 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that in
 
 ## Features
 
+- **Indexing progress** — MCP `notifications/progress` during indexing for real-time progress bar display (v0.8.0)
 - **Chunk Contextualization** — AI-powered context + keyword enrichment per chunk for improved search (v0.3.0)
 - **Hybrid search** — BM25 keyword (FTS5) + semantic vector search, fused via Reciprocal Rank Fusion (RRF)
 - **Embedding optional** — BM25 keyword search works without any embedding server configured
-- **3 MCP tools** — index documents, hybrid search, chunk retrieval
+- **4 MCP tools** — index documents, hybrid search, chunk retrieval, index info
 - **Incremental indexing** — SHA256 change detection, only re-indexes modified files
 - **Orphan cleanup** — automatically removes DB entries for deleted files
 - **Korean-optimized chunking** — sentence boundary splitting for Korean, decimal protection, parenthesis-aware
@@ -104,9 +105,10 @@ When configured, the contextualizer enriches each chunk with AI-generated contex
 
 | Tool | Description |
 |------|-------------|
-| `index_documents` | Index all supported documents in the context folder (incremental) |
+| `index_documents` | Index all supported documents (incremental). Reports progress via MCP notifications |
 | `search_documents` | Hybrid BM25 + vector search with RRF fusion |
 | `get_document_chunk` | Retrieve full content of a specific chunk by ID |
+| `get_index_info` | Index metadata (file/chunk counts, prompt config, stale detection) |
 
 ### Search Modes
 
