@@ -52,6 +52,13 @@ public static class IndexDocumentsTool
         var chunker = context.Chunker;
         var contextFolder = context.ContextFolder;
 
+        // Acquire indexing lock
+        if (!store.AcquireLock(Environment.ProcessId))
+            return JsonSerializer.Serialize(
+                new { error = "Another process is currently indexing this folder." }, JsonOptions);
+
+        try
+        {
         // Resolve effective system prompt: parameter > DB > env > built-in
         await ResolveAndApplyPromptAsync(context, store, system_prompt, force);
 
@@ -219,6 +226,7 @@ public static class IndexDocumentsTool
             finally
             {
                 fileIndex++;
+                store.UpdateProgress(fileIndex, files.Count);
                 progress.Report(new ProgressNotificationValue
                 {
                     Progress = fileIndex,
@@ -245,6 +253,12 @@ public static class IndexDocumentsTool
         };
 
         return JsonSerializer.Serialize(result, JsonOptions);
+
+        } // try
+        finally
+        {
+            store.ReleaseLock();
+        }
     }
 
     /// <summary>

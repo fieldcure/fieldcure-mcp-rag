@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using FieldCure.Mcp.Rag.Models;
@@ -69,6 +70,14 @@ public sealed class SqliteVectorStore : IDisposable
             CREATE TABLE IF NOT EXISTS index_metadata (
                 key   TEXT PRIMARY KEY,
                 value TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS _indexing_lock (
+                id       INTEGER PRIMARY KEY CHECK (id = 1),
+                pid      INTEGER NOT NULL,
+                started  TEXT NOT NULL,
+                current  INTEGER NOT NULL DEFAULT 0,
+                total    INTEGER NOT NULL DEFAULT 0
             );
             """;
         cmd.ExecuteNonQuery();
@@ -494,6 +503,100 @@ public sealed class SqliteVectorStore : IDisposable
         while (await reader.ReadAsync())
             result[reader.GetString(0)] = reader.GetString(1);
         return result;
+    }
+
+    #endregion
+
+    #region Indexing Lock
+
+    /// <summary>Lock info returned by <see cref="GetLockInfo"/>.</summary>
+    public record IndexingLockInfo(bool IsIndexing, int Current, int Total, int Pid);
+
+    /// <summary>
+    /// Attempts to acquire the indexing lock for the given process.
+    /// Returns true if acquired, false if another live process holds it.
+    /// Stale locks (dead processes) are automatically cleaned up.
+    /// </summary>
+    public bool AcquireLock(int pid)
+    {
+        using var conn = OpenConnection();
+        CleanStaleLock(conn);
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT OR IGNORE INTO _indexing_lock (id, pid, started, current, total)
+            VALUES (1, @pid, @started, 0, 0)
+            """;
+        cmd.Parameters.AddWithValue("@pid", pid);
+        cmd.Parameters.AddWithValue("@started", DateTime.UtcNow.ToString("O"));
+        var rows = cmd.ExecuteNonQuery();
+        return rows > 0;
+    }
+
+    /// <summary>Updates the indexing progress in the lock row.</summary>
+    public void UpdateProgress(int current, int total)
+    {
+        using var conn = OpenConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE _indexing_lock SET current = @current, total = @total WHERE id = 1";
+        cmd.Parameters.AddWithValue("@current", current);
+        cmd.Parameters.AddWithValue("@total", total);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>Releases the indexing lock by deleting the row.</summary>
+    public void ReleaseLock()
+    {
+        using var conn = OpenConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM _indexing_lock WHERE id = 1";
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Returns the current lock status. Cleans up stale locks automatically.
+    /// </summary>
+    public IndexingLockInfo GetLockInfo()
+    {
+        using var conn = OpenConnection();
+        CleanStaleLock(conn);
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT pid, current, total FROM _indexing_lock WHERE id = 1";
+        using var reader = cmd.ExecuteReader();
+        if (!reader.Read())
+            return new IndexingLockInfo(false, 0, 0, 0);
+
+        return new IndexingLockInfo(
+            true,
+            reader.GetInt32(1),
+            reader.GetInt32(2),
+            reader.GetInt32(0));
+    }
+
+    /// <summary>Checks if the lock holder process is still alive; deletes the row if not.</summary>
+    static void CleanStaleLock(SqliteConnection conn)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT pid FROM _indexing_lock WHERE id = 1";
+        var result = cmd.ExecuteScalar();
+        if (result is null or DBNull)
+            return;
+
+        var pid = Convert.ToInt32(result);
+        if (!IsProcessAlive(pid))
+        {
+            using var delCmd = conn.CreateCommand();
+            delCmd.CommandText = "DELETE FROM _indexing_lock WHERE id = 1";
+            delCmd.ExecuteNonQuery();
+        }
+    }
+
+    static bool IsProcessAlive(int pid)
+    {
+        var procs = Process.GetProcesses();
+        try { return procs.Any(p => p.Id == pid); }
+        finally { foreach (var p in procs) p.Dispose(); }
     }
 
     #endregion

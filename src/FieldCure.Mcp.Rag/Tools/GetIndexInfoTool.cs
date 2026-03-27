@@ -40,11 +40,18 @@ public static class GetIndexInfoTool
         var defaultPromptHash = ChunkContextualizerHelper.ComputePromptHash(
             ChunkContextualizerHelper.DefaultSystemPrompt);
 
+        // Indexing lock status
+        var lockInfo = store.GetLockInfo();
+
         var result = new
         {
             folder = context.ContextFolder,
             total_files = indexedPaths.Count,
             total_chunks = totalChunks,
+            is_indexing = lockInfo.IsIndexing,
+            indexing_progress = lockInfo.IsIndexing
+                ? new { current = lockInfo.Current, total = lockInfo.Total, pid = lockInfo.Pid }
+                : null,
             system_prompt = storedPrompt,          // null = using built-in default
             effective_prompt_hash = storedHash,     // hash of prompt used during last indexing
             default_prompt = ChunkContextualizerHelper.DefaultSystemPrompt,
