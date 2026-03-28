@@ -79,6 +79,28 @@ public static class IndexDocumentsTool
             })
             .ToList();
 
+        // Safety limits
+        const int softLimit = 1_000;
+        const int hardLimit = 10_000;
+        string? warning = null;
+
+        if (files.Count > hardLimit)
+        {
+            store.ReleaseLock();
+            return JsonSerializer.Serialize(new
+            {
+                error = $"Too many files ({files.Count:N0}). Hard limit is {hardLimit:N0}.",
+                hint = "Specify a subfolder with fewer files to index.",
+                found = files.Count,
+                limit = hardLimit,
+            }, JsonOptions);
+        }
+
+        if (files.Count > softLimit)
+        {
+            warning = $"{files.Count:N0} files found. Consider specifying a subfolder for faster indexing.";
+        }
+
         // Orphan cleanup: remove DB entries for files that no longer exist on disk
         var actualPaths = files
             .Select(f => Path.GetRelativePath(contextFolder, f).Replace('\\', '/'))
@@ -249,7 +271,8 @@ public static class IndexDocumentsTool
             failed,
             removed,
             total_chunks = totalChunks,
-            errors
+            errors,
+            warning
         };
 
         return JsonSerializer.Serialize(result, JsonOptions);
