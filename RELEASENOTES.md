@@ -1,5 +1,13 @@
 ﻿# Release Notes
 
+## v0.10.1 (2026-03-28)
+
+### Added
+
+- **File count safety limits** — `index_documents` enforces soft limit (1,000 files → warning) and hard limit (10,000 files → error with hint to specify a subfolder)
+
+---
+
 ## v0.10.0 (2026-03-27)
 
 ### Added
