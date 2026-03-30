@@ -100,7 +100,9 @@ builder.Services
         options.ServerInfo = new()
         {
             Name = "fieldcure-mcp-rag",
-            Version = "0.8.0",
+            Version = typeof(Program).Assembly
+                .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()
+                ?.InformationalVersion ?? "0.0.0",
         };
     })
     .WithStdioServerTransport()
