@@ -7,8 +7,6 @@ namespace FieldCure.Mcp.Rag.Tools;
 
 /// <summary>
 /// MCP tool that returns index metadata for the host application.
-/// Annotated with ReadOnlyHint and UserInteractionRequired so that
-/// AI models do not call this tool autonomously.
 /// </summary>
 [McpServerToolType]
 public static class GetIndexInfoTool
@@ -18,46 +16,45 @@ public static class GetIndexInfoTool
     [McpServerTool(Name = "get_index_info"),
      Description(
         "Internal tool for host application. Returns index metadata including " +
-        "file/chunk counts, system prompt configuration, and prompt hash for " +
+        "file/chunk counts, indexing status, and prompt hash for " +
         "stale-index detection. Do not call unless explicitly requested by the user.")]
     public static async Task<string> GetIndexInfo(
-        RagContext context,
+        MultiKbContext context,
+        [Description("Knowledge base ID")]
+        string kb_id,
         CancellationToken cancellationToken = default)
     {
-        var store = context.Store;
+        var kb = context.GetKb(kb_id);
+        var store = kb.Store;
 
-        // Counts
         var totalChunks = await store.GetTotalChunkCountAsync();
         var indexedPaths = await store.GetIndexedPathsAsync();
 
-        // Metadata
         var storedPrompt = await store.GetMetadataAsync(
             ChunkContextualizerHelper.MetaKeySystemPrompt);
         var storedHash = await store.GetMetadataAsync(
             ChunkContextualizerHelper.MetaKeyPromptHash);
 
-        // Current built-in default hash for comparison
         var defaultPromptHash = ChunkContextualizerHelper.ComputePromptHash(
             ChunkContextualizerHelper.DefaultSystemPrompt);
 
-        // Indexing lock status
         var lockInfo = store.GetLockInfo();
 
         var result = new
         {
-            folder = context.ContextFolder,
+            kb_id,
+            kb_name = kb.Config.Name,
+            folder = kb.KbPath,
             total_files = indexedPaths.Count,
             total_chunks = totalChunks,
             is_indexing = lockInfo.IsIndexing,
             indexing_progress = lockInfo.IsIndexing
                 ? new { current = lockInfo.Current, total = lockInfo.Total, pid = lockInfo.Pid }
                 : null,
-            system_prompt = storedPrompt,          // null = using built-in default
-            effective_prompt_hash = storedHash,     // hash of prompt used during last indexing
-            default_prompt = ChunkContextualizerHelper.DefaultSystemPrompt,
+            system_prompt = storedPrompt,
+            effective_prompt_hash = storedHash,
             default_prompt_hash = defaultPromptHash,
             is_prompt_stale = storedHash is not null && storedHash != defaultPromptHash && storedPrompt is null,
-            contextualizer = context.Contextualizer.GetType().Name,
         };
 
         return JsonSerializer.Serialize(result, JsonOptions);

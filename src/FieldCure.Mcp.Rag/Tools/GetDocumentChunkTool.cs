@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using System.Text.Json;
-using FieldCure.Mcp.Rag.Storage;
 using ModelContextProtocol.Server;
 
 namespace FieldCure.Mcp.Rag.Tools;
@@ -12,18 +11,22 @@ public static class GetDocumentChunkTool
         "Retrieves the full content of a specific chunk by its ID. " +
         "Use after search_documents to get complete text of a result.")]
     public static async Task<string> GetDocumentChunk(
-        RagContext context,
+        MultiKbContext context,
+        [Description("Knowledge base ID")]
+        string kb_id,
         [Description("Chunk ID from search results")]
         string chunk_id,
         CancellationToken cancellationToken = default)
     {
-        var chunk = await context.Store.GetChunkAsync(chunk_id);
+        var kb = context.GetKb(kb_id);
+        var chunk = await kb.Store.GetChunkAsync(chunk_id);
 
         if (chunk is null)
-            return JsonSerializer.Serialize(new { error = $"Chunk not found: {chunk_id}" });
+            return JsonSerializer.Serialize(new { error = $"Chunk not found: {chunk_id}", kb_id });
 
         var response = new
         {
+            kb_id,
             chunk_id = chunk.Id,
             source_path = chunk.SourcePath,
             chunk_index = chunk.ChunkIndex,

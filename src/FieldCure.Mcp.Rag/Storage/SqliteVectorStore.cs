@@ -14,19 +14,23 @@ public sealed class SqliteVectorStore : IDisposable
 {
     readonly string _connectionString;
 
-    public SqliteVectorStore(string dbPath)
+    public SqliteVectorStore(string dbPath, bool readOnly = false)
     {
-        var dir = Path.GetDirectoryName(dbPath);
-        if (!string.IsNullOrEmpty(dir))
-            Directory.CreateDirectory(dir);
+        if (!readOnly)
+        {
+            var dir = Path.GetDirectoryName(dbPath);
+            if (!string.IsNullOrEmpty(dir))
+                Directory.CreateDirectory(dir);
+        }
 
         _connectionString = new SqliteConnectionStringBuilder
         {
             DataSource = dbPath,
-            Mode = SqliteOpenMode.ReadWriteCreate,
+            Mode = readOnly ? SqliteOpenMode.ReadOnly : SqliteOpenMode.ReadWriteCreate,
         }.ToString();
 
-        InitializeSchema();
+        if (!readOnly)
+            InitializeSchema();
     }
 
     void InitializeSchema()

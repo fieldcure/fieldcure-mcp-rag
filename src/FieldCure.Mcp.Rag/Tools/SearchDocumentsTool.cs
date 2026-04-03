@@ -16,10 +16,12 @@ public static class SearchDocumentsTool
     };
 
     [McpServerTool(Name = "search_documents"), Description(
-        "Searches documents using hybrid BM25 keyword + vector semantic search. " +
+        "Searches documents in a knowledge base using hybrid BM25 keyword + vector semantic search. " +
         "Returns ranked results with source file and content preview.")]
     public static async Task<string> SearchDocuments(
-        RagContext context,
+        MultiKbContext context,
+        [Description("Knowledge base ID")]
+        string kb_id,
         [Description("Natural language search query")]
         string query,
         [Description("Maximum number of results (default: 5)")]
@@ -28,10 +30,12 @@ public static class SearchDocumentsTool
         float threshold = 0.3f,
         CancellationToken cancellationToken = default)
     {
-        var hybrid = await context.Searcher.SearchAsync(query, top_k, threshold, cancellationToken);
+        var kb = context.GetKb(kb_id);
+        var hybrid = await kb.Searcher.SearchAsync(query, top_k, threshold, cancellationToken);
 
         var response = new
         {
+            kb_id,
             results = hybrid.Results.Select(r => new
             {
                 chunk_id = r.ChunkId,
