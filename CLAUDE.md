@@ -55,3 +55,16 @@ dotnet test
 - FTS5/벡터 임베딩 대상: content → enriched
 - 환경변수: CONTEXTUALIZER_PROVIDER, CONTEXTUALIZER_BASE_URL, CONTEXTUALIZER_API_KEY, CONTEXTUALIZER_MODEL
 - TargetFramework net9.0 → net8.0 (DocumentParsers와 통일)
+
+## v0.11.0 완료 내역
+
+- exec/serve 이중 모드 분리 (Runner 패턴)
+  - `exec --path <kb-path> [--force]` — 헤드리스 인덱싱 프로세스
+  - `serve --path <kb-path>` — 검색 전용 MCP 서버 (stdio)
+- config.json — KB별 설정 (sourcePaths, contextualizer/embedding 모델, apiKeyPreset)
+- CredentialService — Windows PasswordVault에서 API 키 조회 (AssistStudio 공유)
+- IndexingEngine — IndexDocumentsTool에서 추출, cancel 파일 graceful 종료
+- index_documents MCP 도구 제거 (인덱싱은 exec 책임)
+- 환경변수 설정 방식 폐기 → config.json + PasswordVault
+- DB 파일: rag_index.db → rag.db
+- 데이터 경로: {hash} 기반 → {kb-id} 기반 (앱이 폴더 생성)

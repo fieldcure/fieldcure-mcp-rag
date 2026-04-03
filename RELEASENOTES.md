@@ -1,5 +1,28 @@
 ﻿# Release Notes
 
+## v0.11.0 (2026-04-03)
+
+### Breaking Changes
+
+- **exec/serve dual-mode architecture** — single-process MCP server replaced with `exec` (headless indexing) + `serve` (search-only MCP server)
+- **CLI interface changed** — `fieldcure-mcp-rag <context-folder>` → `fieldcure-mcp-rag serve --path <kb-path>` / `exec --path <kb-path>`
+- **`index_documents` tool removed** — indexing is now handled by `exec` mode as a separate process
+- **Environment variables removed** — `EMBEDDING_*` and `CONTEXTUALIZER_*` env vars replaced by `config.json` + PasswordVault credentials
+- **DB file renamed** — `rag_index.db` → `rag.db`
+- **Data path changed** — `{folder_hash}` based → `{kb-id}` (UUID) based, app creates the folder
+
+### Added
+
+- **`exec` mode** — headless indexing process with exit codes (0=success, 1=failure, 2=cancelled)
+- **`serve` mode** — search-only MCP server (3 tools: `search_documents`, `get_document_chunk`, `get_index_info`)
+- **`config.json`** — per-knowledge-base configuration (source paths, contextualizer/embedding model settings)
+- **`CredentialService`** — Windows PasswordVault integration for API key resolution (shared with AssistStudio)
+- **`IndexingEngine`** — extracted from `IndexDocumentsTool` with cancel file support and multiple source paths
+- **Cancel file** — `{kb-path}/cancel` triggers graceful shutdown of exec process
+- **Multiple source paths** — single knowledge base can index from multiple folder sources
+
+---
+
 ## v0.10.1 (2026-03-28)
 
 ### Added
