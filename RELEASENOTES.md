@@ -1,5 +1,14 @@
 ﻿# Release Notes
 
+## v0.12.1 (2026-04-03)
+
+### Fixed
+
+- **Re-release of v0.12.0** — v0.12.0 nupkg contained stale v0.10.1 DLL due to `dotnet pack --no-build` using cached Release build
+- **Publish script** — removed `--no-build` shortcut; now performs `dotnet clean` + full rebuild before packing
+
+---
+
 ## v0.12.0 (2026-04-03)
 
 ### Breaking Changes

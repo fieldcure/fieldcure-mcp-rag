@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>0.12.0</Version>
+    <Version>0.12.1</Version>
     <PackageId>FieldCure.Mcp.Rag</PackageId>
 
     <Authors>Jong Hyun Kim</Authors>
@@ -20,7 +20,7 @@
     <RepositoryUrl>https://github.com/fieldcure/fieldcure-mcp-rag</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>mcp;rag;embedding;vector-search;bm25;hybrid-search;ai;contextualization;chunk-enrichment</PackageTags>
-    <PackageReleaseNotes>v0.12.0: Multi-KB serve mode (--base-path), kb_id parameter on all tools, list_knowledge_bases tool, read-only SqliteVectorStore for serve. Breaking: serve --path removed, RagContext replaced by MultiKbContext.</PackageReleaseNotes>
+    <PackageReleaseNotes>v0.12.1: Re-release of v0.12.0 with correct build artifacts (v0.12.0 nupkg contained stale v0.10.1 DLL due to --no-build cache issue). Publish script now performs clean build.</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>Logo.png</PackageIcon>
 
