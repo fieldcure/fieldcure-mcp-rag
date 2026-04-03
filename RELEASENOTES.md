@@ -1,5 +1,14 @@
 ﻿# Release Notes
 
+## v0.11.1 (2026-04-03)
+
+### Changed
+
+- `FieldCure.DocumentParsers` 0.3.x → 0.* (picks up 0.4.x with improved Markdown parsing)
+- `FieldCure.DocumentParsers.Pdf` 0.2.x → 0.*
+
+---
+
 ## v0.11.0 (2026-04-03)
 
 ### Breaking Changes

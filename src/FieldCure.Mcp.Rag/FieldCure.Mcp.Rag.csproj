@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>0.11.0</Version>
+    <Version>0.11.1</Version>
     <PackageId>FieldCure.Mcp.Rag</PackageId>
 
     <Authors>Jong Hyun Kim</Authors>
@@ -20,7 +20,7 @@
     <RepositoryUrl>https://github.com/fieldcure/fieldcure-mcp-rag</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>mcp;rag;embedding;vector-search;bm25;hybrid-search;ai;contextualization;chunk-enrichment</PackageTags>
-    <PackageReleaseNotes>v0.11.0: exec/serve dual-mode architecture — headless indexing (exec) + search-only MCP server (serve). config.json per knowledge base. PasswordVault credential resolution. Cancel file for graceful shutdown.</PackageReleaseNotes>
+    <PackageReleaseNotes>v0.11.1: Widen FieldCure.DocumentParsers dependency range to 0.* for improved Markdown parsing support.</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>Logo.png</PackageIcon>
 
