@@ -8,16 +8,16 @@
 dotnet tool install -g FieldCure.Mcp.Rag
 ```
 
-## Architecture (v0.11.0)
+## Architecture (v0.12.0)
 
 ```
 fieldcure-mcp-rag
-├── exec  --path <kb-path> [--force]   # Headless indexing
-└── serve --path <kb-path>             # MCP search server (stdio)
+├── exec  --path <kb-path> [--force]   # Headless indexing (single KB)
+└── serve --base-path <path>           # Multi-KB MCP search server (stdio)
 ```
 
 - **exec** — headless indexing process. Scans source paths, chunks, contextualizes, embeds, stores.
-- **serve** — read-only MCP server. Exposes search tools via stdio transport.
+- **serve** — read-only MCP server serving all KBs under the base path. Tools accept `kb_id` parameter to target a specific KB. Lazy-loads KB instances on first access.
 
 Both modes read `config.json` from the knowledge base folder and resolve API keys from Windows PasswordVault.
 
@@ -55,8 +55,10 @@ fieldcure-mcp-rag exec --path "%LOCALAPPDATA%\FieldCure\Mcp.Rag\my-kb-001"
 ### 3. Search (MCP server)
 
 ```bash
-fieldcure-mcp-rag serve --path "%LOCALAPPDATA%\FieldCure\Mcp.Rag\my-kb-001"
+fieldcure-mcp-rag serve --base-path "%LOCALAPPDATA%\FieldCure\Mcp.Rag"
 ```
+
+A single serve process handles all knowledge bases under the base path.
 
 ### Claude Desktop
 
@@ -67,16 +69,19 @@ Add to `claude_desktop_config.json`:
   "mcpServers": {
     "rag": {
       "command": "fieldcure-mcp-rag",
-      "args": ["serve", "--path", "C:\\Users\\me\\AppData\\Local\\FieldCure\\Mcp.Rag\\my-kb-001"]
+      "args": ["serve", "--base-path", "C:\\Users\\me\\AppData\\Local\\FieldCure\\Mcp.Rag"]
     }
   }
 }
 ```
 
-## Tools (3)
+## Tools (4)
+
+All tools (except `list_knowledge_bases`) require a `kb_id` parameter.
 
 | Tool | Description |
 |------|-------------|
+| `list_knowledge_bases` | List all available KBs with status (file/chunk counts, indexing status) |
 | `search_documents` | Hybrid BM25 + vector search with Reciprocal Rank Fusion |
 | `get_document_chunk` | Retrieve full content of a specific chunk by ID |
 | `get_index_info` | Returns index metadata (file/chunk counts, prompt config, stale-index detection, indexing lock status). Internal — for host application use |

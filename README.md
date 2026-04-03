@@ -5,19 +5,20 @@
 
 A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that indexes documents and performs hybrid BM25 + vector search with Reciprocal Rank Fusion. Built with C# and the official [MCP C# SDK](https://github.com/modelcontextprotocol/csharp-sdk).
 
-## Architecture (v0.11.0)
+## Architecture (v0.12.0)
 
 ```
 fieldcure-mcp-rag
-├── exec  --path <kb-path> [--force]   # Headless indexing process
-└── serve --path <kb-path>             # MCP search server (stdio)
+├── exec  --path <kb-path> [--force]   # Headless indexing (single KB)
+└── serve --base-path <path>           # Multi-KB MCP search server (stdio)
 ```
 
 - **exec** — scans source folders, chunks documents, contextualizes with AI, embeds, stores in SQLite. Runs as a detached process.
-- **serve** — read-only MCP server exposing search tools. Can run while exec is indexing (SQLite WAL).
+- **serve** — read-only MCP server serving all knowledge bases under the base path. Single process handles multiple KBs via `kb_id` parameter. Can run while exec is indexing (SQLite WAL).
 
 ## Features
 
+- **Multi-KB serve mode** — single MCP server process serves all knowledge bases under a base path, lazy-loaded per KB (v0.12.0)
 - **exec/serve dual mode** — headless indexing + search-only MCP server, following the Runner pattern (v0.11.0)
 - **PasswordVault credentials** — API keys resolved from Windows Credential Manager, shared with AssistStudio (v0.11.0)
 - **Per-KB config.json** — source paths, model settings, credential presets per knowledge base (v0.11.0)
@@ -28,7 +29,7 @@ fieldcure-mcp-rag
 - **Chunk Contextualization** — AI-powered context + keyword enrichment per chunk for improved search (v0.3.0)
 - **Hybrid search** — BM25 keyword (FTS5) + semantic vector search, fused via Reciprocal Rank Fusion (RRF)
 - **Embedding optional** — BM25 keyword search works without any embedding server configured
-- **3 MCP tools** — hybrid search, chunk retrieval, index info
+- **4 MCP tools** — KB listing, hybrid search, chunk retrieval, index info
 - **Incremental indexing** — SHA256 change detection, only re-indexes modified files
 - **Orphan cleanup** — automatically removes DB entries for deleted files
 - **Korean-optimized chunking** — sentence boundary splitting for Korean, decimal protection, parenthesis-aware
@@ -94,8 +95,10 @@ fieldcure-mcp-rag exec --path "C:\Users\me\AppData\Local\FieldCure\Mcp.Rag\my-kb
 ### 3. Start MCP search server
 
 ```bash
-fieldcure-mcp-rag serve --path "C:\Users\me\AppData\Local\FieldCure\Mcp.Rag\my-kb-001"
+fieldcure-mcp-rag serve --base-path "C:\Users\me\AppData\Local\FieldCure\Mcp.Rag"
 ```
+
+A single serve process handles all knowledge bases under the base path. Tools accept a `kb_id` parameter to target a specific KB.
 
 ### Claude Desktop
 
@@ -106,7 +109,7 @@ Add to `claude_desktop_config.json`:
   "mcpServers": {
     "rag": {
       "command": "fieldcure-mcp-rag",
-      "args": ["serve", "--path", "C:\\Users\\me\\AppData\\Local\\FieldCure\\Mcp.Rag\\my-kb-001"]
+      "args": ["serve", "--base-path", "C:\\Users\\me\\AppData\\Local\\FieldCure\\Mcp.Rag"]
     }
   }
 }
@@ -128,8 +131,11 @@ Add to `claude_desktop_config.json`:
 
 ## Tools
 
+All tools (except `list_knowledge_bases`) require a `kb_id` parameter to specify the target knowledge base.
+
 | Tool | Description |
 |------|-------------|
+| `list_knowledge_bases` | List all available KBs with status (file/chunk counts, indexing status) |
 | `search_documents` | Hybrid BM25 + vector search with RRF fusion |
 | `get_document_chunk` | Retrieve full content of a specific chunk by ID |
 | `get_index_info` | Index metadata (file/chunk counts, prompt config, stale detection, indexing lock status) |
@@ -160,7 +166,7 @@ Additional formats are automatically supported when new parsers are registered.
 ```
 src/FieldCure.Mcp.Rag/
 ├── Program.cs                  # CLI entry (exec | serve)
-├── RagContext.cs               # DI service container
+├── MultiKbContext.cs           # Multi-KB manager (lazy load, cache, cleanup)
 ├── Configuration/
 │   └── RagConfig.cs            # config.json model
 ├── Credentials/
@@ -186,9 +192,10 @@ src/FieldCure.Mcp.Rag/
 ├── Chunking/
 │   └── TextChunker.cs          # Korean/English sentence-aware chunking
 ├── Tools/
-│   ├── SearchDocumentsTool.cs  # Hybrid search with mode selection
-│   ├── GetDocumentChunkTool.cs # Chunk retrieval
-│   └── GetIndexInfoTool.cs     # Index metadata
+│   ├── ListKnowledgeBasesTool.cs # KB listing
+│   ├── SearchDocumentsTool.cs    # Hybrid search with mode selection
+│   ├── GetDocumentChunkTool.cs   # Chunk retrieval
+│   └── GetIndexInfoTool.cs       # Index metadata
 └── Models/
     ├── DocumentChunk.cs
     ├── SearchResult.cs

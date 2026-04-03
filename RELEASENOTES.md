@@ -1,5 +1,26 @@
 ﻿# Release Notes
 
+## v0.12.0 (2026-04-03)
+
+### Breaking Changes
+
+- **Multi-KB serve mode** — `serve --path <kb-path>` replaced with `serve --base-path <path>`, serving all KBs under the base path with a single process
+- **`kb_id` parameter required** — `search_documents`, `get_document_chunk`, `get_index_info` now require a `kb_id` parameter
+- **`RagContext` removed** — replaced by `MultiKbContext` (lazy-loading, concurrent KB management)
+
+### Added
+
+- **`MultiKbContext`** — manages multiple knowledge bases under a shared base path with `ConcurrentDictionary` lazy loading; auto-cleans cached instances for deleted KBs
+- **`list_knowledge_bases` tool** — returns all available KBs with ID, name, file/chunk counts, and indexing status
+- **Read-only `SqliteVectorStore`** — `readOnly` parameter skips schema initialization and opens DB in read-only mode for serve
+- **`kb_id` in tool responses** — all tool responses now include `kb_id` for identification
+
+### Changed
+
+- `get_index_info` response: added `kb_name`, removed `default_prompt` and `contextualizer` fields
+
+---
+
 ## v0.11.1 (2026-04-03)
 
 ### Changed

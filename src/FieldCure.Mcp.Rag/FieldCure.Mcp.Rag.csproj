@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>0.11.1</Version>
+    <Version>0.12.0</Version>
     <PackageId>FieldCure.Mcp.Rag</PackageId>
 
     <Authors>Jong Hyun Kim</Authors>
@@ -20,7 +20,7 @@
     <RepositoryUrl>https://github.com/fieldcure/fieldcure-mcp-rag</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>mcp;rag;embedding;vector-search;bm25;hybrid-search;ai;contextualization;chunk-enrichment</PackageTags>
-    <PackageReleaseNotes>v0.11.1: Widen FieldCure.DocumentParsers dependency range to 0.* for improved Markdown parsing support.</PackageReleaseNotes>
+    <PackageReleaseNotes>v0.12.0: Multi-KB serve mode (--base-path), kb_id parameter on all tools, list_knowledge_bases tool, read-only SqliteVectorStore for serve. Breaking: serve --path removed, RagContext replaced by MultiKbContext.</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>Logo.png</PackageIcon>
 
