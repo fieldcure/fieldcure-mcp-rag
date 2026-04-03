@@ -1,5 +1,13 @@
 ﻿# Release Notes
 
+## v0.12.2 (2026-04-03)
+
+### Changed
+
+- `ModelContextProtocol` 1.1.0 → 1.2.0
+
+---
+
 ## v0.12.1 (2026-04-03)
 
 ### Fixed

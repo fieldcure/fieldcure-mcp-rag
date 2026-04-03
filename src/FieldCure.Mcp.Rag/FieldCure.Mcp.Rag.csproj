@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>0.12.1</Version>
+    <Version>0.12.2</Version>
     <PackageId>FieldCure.Mcp.Rag</PackageId>
 
     <Authors>Jong Hyun Kim</Authors>
@@ -20,7 +20,7 @@
     <RepositoryUrl>https://github.com/fieldcure/fieldcure-mcp-rag</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>mcp;rag;embedding;vector-search;bm25;hybrid-search;ai;contextualization;chunk-enrichment</PackageTags>
-    <PackageReleaseNotes>v0.12.1: Re-release of v0.12.0 with correct build artifacts (v0.12.0 nupkg contained stale v0.10.1 DLL due to --no-build cache issue). Publish script now performs clean build.</PackageReleaseNotes>
+    <PackageReleaseNotes>v0.12.2: Upgrade ModelContextProtocol SDK to 1.2.0.</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>Logo.png</PackageIcon>
 
@@ -38,7 +38,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="ModelContextProtocol" Version="1.1.0" />
+    <PackageReference Include="ModelContextProtocol" Version="1.2.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.*" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.*" />
     <PackageReference Include="System.Net.Http.Json" Version="8.*" />
