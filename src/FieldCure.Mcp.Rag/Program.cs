@@ -1,125 +1,203 @@
 using System.Reflection;
-using System.Security.Cryptography;
 using System.Text;
 using FieldCure.DocumentParsers.Pdf;
 using FieldCure.Mcp.Rag;
 using FieldCure.Mcp.Rag.Chunking;
+using FieldCure.Mcp.Rag.Configuration;
 using FieldCure.Mcp.Rag.Contextualization;
+using FieldCure.Mcp.Rag.Credentials;
 using FieldCure.Mcp.Rag.Embedding;
+using FieldCure.Mcp.Rag.Indexing;
 using FieldCure.Mcp.Rag.Search;
 using FieldCure.Mcp.Rag.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
+#pragma warning disable CA1416 // Platform compatibility — this tool targets Windows (AssistStudio integration)
+
 // Register PDF parser
 DocumentParserFactoryExtensions.AddPdfSupport();
 
-// args[0] = context folder path (required)
-if (args.Length == 0)
+if (args.Length > 0)
 {
-    Console.Error.WriteLine("Usage: fieldcure-mcp-rag <context-folder>");
-    return 1;
-}
+    Console.OutputEncoding = Encoding.UTF8;
 
-var contextFolder = Path.GetFullPath(args[0]);
-if (!Directory.Exists(contextFolder))
-    Directory.CreateDirectory(contextFolder);
-
-Console.Error.WriteLine($"Context folder: {contextFolder}");
-
-// Data root: %LOCALAPPDATA%/FieldCure/Mcp.Rag/{folderHash}/
-var dataRoot = ComputeDataRoot(contextFolder);
-Directory.CreateDirectory(dataRoot);
-
-// Auto-migrate from legacy .rag/ path
-var legacyDbPath = Path.Combine(contextFolder, ".rag", "rag_index.db");
-var dbPath = Path.Combine(dataRoot, "rag_index.db");
-if (File.Exists(legacyDbPath) && !File.Exists(dbPath))
-{
-    File.Copy(legacyDbPath, dbPath);
-    Console.Error.WriteLine($"Migrated index from {legacyDbPath} to {dbPath}");
-}
-
-Console.Error.WriteLine($"Data root: {dataRoot}");
-
-// Embedding provider: read from environment variables
-var embeddingProvider = EmbeddingProviderFactory.CreateFromEnvironment();
-Console.Error.WriteLine($"Embedding model: {embeddingProvider.ModelId}");
-
-// SQLite vector store
-var store = new SqliteVectorStore(dbPath);
-
-// Text chunker
-var chunker = new TextChunker();
-
-// Hybrid searcher
-var searcher = new HybridSearcher(store, embeddingProvider);
-
-// Chunk contextualizer: read from environment variables
-IChunkContextualizer contextualizer;
-var ctxProvider = Environment.GetEnvironmentVariable("CONTEXTUALIZER_PROVIDER") ?? "openai";
-var ctxBaseUrl = Environment.GetEnvironmentVariable("CONTEXTUALIZER_BASE_URL") ?? "";
-var ctxApiKey = Environment.GetEnvironmentVariable("CONTEXTUALIZER_API_KEY") ?? "";
-var ctxModel = Environment.GetEnvironmentVariable("CONTEXTUALIZER_MODEL") ?? "";
-var ctxSystemPrompt = Environment.GetEnvironmentVariable("CONTEXTUALIZER_SYSTEM_PROMPT") ?? "";
-
-if (string.IsNullOrEmpty(ctxModel))
-{
-    contextualizer = new NullChunkContextualizer();
-}
-else if (ctxProvider.Equals("anthropic", StringComparison.OrdinalIgnoreCase))
-{
-    contextualizer = new AnthropicChunkContextualizer(
-        apiKey: ctxApiKey,
-        model: ctxModel,
-        baseUrl: string.IsNullOrEmpty(ctxBaseUrl) ? "https://api.anthropic.com" : ctxBaseUrl,
-        systemPrompt: ctxSystemPrompt);
-}
-else
-{
-    // "openai" (default) — covers OpenAI, Ollama, Groq, Gemini
-    contextualizer = new OpenAiChunkContextualizer(ctxBaseUrl, ctxModel, ctxApiKey, ctxSystemPrompt);
-}
-
-Console.Error.WriteLine($"Contextualizer: {contextualizer.GetType().Name} ({ctxModel})");
-
-// RAG context for DI
-var ragContext = new RagContext(contextFolder, dataRoot, store, embeddingProvider, chunker, searcher, contextualizer);
-
-var builder = Host.CreateApplicationBuilder(Array.Empty<string>());
-
-builder.Logging.AddConsole(options =>
-{
-    options.LogToStandardErrorThreshold = LogLevel.Trace;
-});
-
-builder.Services
-    .AddSingleton(ragContext)
-    .AddMcpServer(options =>
+    return args[0].ToLowerInvariant() switch
     {
-        options.ServerInfo = new()
-        {
-            Name = "fieldcure-mcp-rag",
-            Version = typeof(Program).Assembly
-                .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()
-                ?.InformationalVersion ?? "0.0.0",
-        };
-    })
-    .WithStdioServerTransport()
-    .WithToolsFromAssembly();
+        "exec" => await RunExecAsync(args),
+        "serve" => await RunServeAsync(args),
+        _ => PrintUsage(),
+    };
+}
 
-var app = builder.Build();
-await app.RunAsync();
+return PrintUsage();
 
-store.Dispose();
-return 0;
+// ── Serve Mode ──────────────────────────────────────────────────────────────
 
-static string ComputeDataRoot(string contextFolder)
+async Task<int> RunServeAsync(string[] args)
 {
-    var hash = SHA256.HashData(Encoding.UTF8.GetBytes(contextFolder));
-    var folderHash = Convert.ToHexString(hash)[..8].ToLowerInvariant();
-    return Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "FieldCure", "Mcp.Rag", folderHash);
+    var kbPath = ParsePathArg(args);
+    if (kbPath is null) return PrintUsage();
+
+    var config = RagConfig.Load(kbPath);
+    var dbPath = Path.Combine(kbPath, "rag.db");
+    var store = new SqliteVectorStore(dbPath);
+    var credentials = new CredentialService();
+
+    // Embedding provider for search queries
+    var embeddingProvider = CreateEmbeddingProvider(config.Embedding, credentials);
+    var searcher = new HybridSearcher(store, embeddingProvider);
+
+    // Serve mode uses NullChunkContextualizer (no indexing)
+    var ragContext = new RagContext(kbPath, kbPath, store, embeddingProvider, new TextChunker(), searcher, new NullChunkContextualizer());
+
+    var builder = Host.CreateApplicationBuilder(Array.Empty<string>());
+
+    builder.Logging.ClearProviders();
+    builder.Logging.AddConsole(options =>
+    {
+        options.LogToStandardErrorThreshold = LogLevel.Trace;
+    });
+
+    builder.Services
+        .AddSingleton(ragContext)
+        .AddMcpServer(options =>
+        {
+            options.ServerInfo = new()
+            {
+                Name = "fieldcure-mcp-rag",
+                Version = typeof(Program).Assembly
+                    .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                    ?.InformationalVersion ?? "0.0.0",
+            };
+        })
+        .WithStdioServerTransport()
+        .WithToolsFromAssembly();
+
+    var app = builder.Build();
+    await app.RunAsync();
+
+    store.Dispose();
+    return 0;
+}
+
+// ── Exec Mode ───────────────────────────────────────────────────────────────
+
+async Task<int> RunExecAsync(string[] args)
+{
+    var kbPath = ParsePathArg(args);
+    if (kbPath is null) return PrintUsage();
+
+    var force = args.Any(a => a.Equals("--force", StringComparison.OrdinalIgnoreCase));
+
+    var config = RagConfig.Load(kbPath);
+    var dbPath = Path.Combine(kbPath, "rag.db");
+
+    using var loggerFactory = LoggerFactory.Create(builder =>
+    {
+        builder.AddConsole(options =>
+        {
+            options.LogToStandardErrorThreshold = LogLevel.Trace;
+        });
+    });
+
+    var logger = loggerFactory.CreateLogger<IndexingEngine>();
+    var credentials = new CredentialService();
+    var store = new SqliteVectorStore(dbPath);
+    var chunker = new TextChunker();
+    var embeddingProvider = CreateEmbeddingProvider(config.Embedding, credentials);
+    var contextualizer = CreateContextualizer(config.Contextualizer, credentials);
+
+    logger.LogInformation("Knowledge base: {Name} ({Id})", config.Name, config.Id);
+    logger.LogInformation("Path: {Path}", kbPath);
+    logger.LogInformation("Source paths: {Paths}", string.Join(", ", config.SourcePaths));
+    logger.LogInformation("Embedding: {Provider}/{Model}", config.Embedding.Provider, config.Embedding.Model);
+    logger.LogInformation("Contextualizer: {Type}", contextualizer.GetType().Name);
+
+    var engine = new IndexingEngine(kbPath, config, store, embeddingProvider, chunker, contextualizer, logger);
+
+    try
+    {
+        return await engine.RunAsync(force, CancellationToken.None);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Indexing failed.");
+        return 1;
+    }
+    finally
+    {
+        store.Dispose();
+    }
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+static string? ParsePathArg(string[] args)
+{
+    for (int i = 0; i < args.Length - 1; i++)
+    {
+        if (args[i].Equals("--path", StringComparison.OrdinalIgnoreCase))
+            return Path.GetFullPath(args[i + 1]);
+    }
+
+    return null;
+}
+
+static IEmbeddingProvider CreateEmbeddingProvider(ProviderConfig config, ICredentialService credentials)
+{
+    if (string.IsNullOrEmpty(config.Model))
+        return new NullEmbeddingProvider();
+
+    var apiKey = config.ApiKeyPreset is not null
+        ? credentials.GetApiKey(config.ApiKeyPreset) ?? ""
+        : "";
+
+    var baseUrl = config.BaseUrl ?? config.Provider.ToLowerInvariant() switch
+    {
+        "ollama" => "http://localhost:11434",
+        "openai" => "https://api.openai.com",
+        _ => "http://localhost:11434",
+    };
+
+    return new OpenAiCompatibleEmbeddingProvider(baseUrl, apiKey, config.Model, config.Dimension);
+}
+
+static IChunkContextualizer CreateContextualizer(ProviderConfig config, ICredentialService credentials)
+{
+    if (string.IsNullOrEmpty(config.Model))
+        return new NullChunkContextualizer();
+
+    var apiKey = config.ApiKeyPreset is not null
+        ? credentials.GetApiKey(config.ApiKeyPreset) ?? ""
+        : "";
+
+    var baseUrl = config.BaseUrl ?? config.Provider.ToLowerInvariant() switch
+    {
+        "anthropic" => "https://api.anthropic.com",
+        "ollama" => "http://localhost:11434",
+        "openai" => "https://api.openai.com",
+        _ => "http://localhost:11434",
+    };
+
+    if (config.Provider.Equals("anthropic", StringComparison.OrdinalIgnoreCase))
+        return new AnthropicChunkContextualizer(apiKey, config.Model, baseUrl);
+
+    return new OpenAiChunkContextualizer(baseUrl, config.Model, apiKey);
+}
+
+static int PrintUsage()
+{
+    Console.Error.WriteLine("FieldCure RAG — Document indexing and hybrid search engine");
+    Console.Error.WriteLine();
+    Console.Error.WriteLine("Usage:");
+    Console.Error.WriteLine("  fieldcure-mcp-rag serve --path <kb-path>           Start MCP search server (stdio)");
+    Console.Error.WriteLine("  fieldcure-mcp-rag exec  --path <kb-path> [--force] Run headless indexing");
+    Console.Error.WriteLine();
+    Console.Error.WriteLine("Exit codes (exec mode):");
+    Console.Error.WriteLine("  0  Succeeded");
+    Console.Error.WriteLine("  1  Failed");
+    Console.Error.WriteLine("  2  Cancelled");
+    return 1;
 }
