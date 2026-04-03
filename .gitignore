@@ -270,4 +270,4 @@ PublishSettings.props
 SigningSettings.props
 
 # Design documents (internal specs, not for distribution)
-design/
+todo/
