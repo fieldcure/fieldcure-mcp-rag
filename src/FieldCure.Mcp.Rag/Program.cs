@@ -57,6 +57,8 @@ async Task<int> RunServeAsync(string[] args)
             options.ServerInfo = new()
             {
                 Name = "fieldcure-mcp-rag",
+                Title = "FieldCure RAG",
+                Description = "Document search — hybrid BM25 + vector retrieval, multi-KB, incremental indexing",
                 Version = typeof(Program).Assembly
                     .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
                     ?.InformationalVersion ?? "0.0.0",
