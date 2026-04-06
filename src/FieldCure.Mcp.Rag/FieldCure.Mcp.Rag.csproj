@@ -44,8 +44,8 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.*" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.*" />
     <PackageReference Include="System.Net.Http.Json" Version="8.*" />
-    <PackageReference Include="FieldCure.DocumentParsers" Version="0.*" />
-    <PackageReference Include="FieldCure.DocumentParsers.Pdf" Version="0.*" />
+    <PackageReference Include="FieldCure.DocumentParsers" Version="1.*" />
+    <PackageReference Include="FieldCure.DocumentParsers.Pdf" Version="1.*" />
   </ItemGroup>
 
 </Project>
