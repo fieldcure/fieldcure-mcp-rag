@@ -129,18 +129,6 @@ Add to `claude_desktop_config.json`:
 | `embedding.*` | Same structure as contextualizer |
 | `systemPrompt` | Custom system prompt for contextualization (null = built-in default) |
 
-### AssistStudio
-
-Settings > MCP Servers > **Add Server**:
-
-| Field | Value |
-|-------|-------|
-| **Name** | `RAG` |
-| **Command** | `fieldcure-mcp-rag` |
-| **Arguments** | `serve --base-path "%LOCALAPPDATA%\FieldCure\Mcp.Rag"` |
-| **Environment** | *(none — API keys loaded from Windows Credential Manager)* |
-| **Description** | *(auto-filled on first connection)* |
-
 ## Tools
 
 All tools (except `list_knowledge_bases`) require a `kb_id` parameter to specify the target knowledge base.

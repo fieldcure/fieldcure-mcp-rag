@@ -120,18 +120,6 @@ Knowledge base data at `%LOCALAPPDATA%\FieldCure\Mcp.Rag\{kb-id}\`:
 - `config.json` — knowledge base configuration (created by app)
 - `rag.db` — SQLite database (chunks, embeddings, FTS5 index, file hashes, indexing lock)
 
-### AssistStudio
-
-Settings > MCP Servers > **Add Server**:
-
-| Field | Value |
-|-------|-------|
-| **Name** | `RAG` |
-| **Command** | `fieldcure-mcp-rag` |
-| **Arguments** | `serve --base-path "%LOCALAPPDATA%\FieldCure\Mcp.Rag"` |
-| **Environment** | *(none — API keys loaded from Windows Credential Manager)* |
-| **Description** | *(auto-filled on first connection)* |
-
 ## Requirements
 
 - [.NET 8.0 Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) or later
