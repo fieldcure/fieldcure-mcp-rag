@@ -5,7 +5,7 @@
 
 A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that indexes documents and performs hybrid BM25 + vector search with Reciprocal Rank Fusion. Built with C# and the official [MCP C# SDK](https://github.com/modelcontextprotocol/csharp-sdk).
 
-## Architecture (v0.12.0)
+## Architecture
 
 ```
 fieldcure-mcp-rag
@@ -18,15 +18,15 @@ fieldcure-mcp-rag
 
 ## Features
 
-- **Multi-KB serve mode** — single MCP server process serves all knowledge bases under a base path, lazy-loaded per KB (v0.12.0)
-- **exec/serve dual mode** — headless indexing + search-only MCP server, following the Runner pattern (v0.11.0)
-- **PasswordVault credentials** — API keys resolved from Windows Credential Manager, shared with AssistStudio (v0.11.0)
-- **Per-KB config.json** — source paths, model settings, credential presets per knowledge base (v0.11.0)
-- **Cancel file** — graceful exec shutdown via `{kb-path}/cancel` file (v0.11.0)
-- **PDF indexing** — `.pdf` files indexed and searchable with page-by-page text extraction (v0.10.0)
-- **Math equation indexing** — DOCX/HWPX math equations extracted as `[math: LaTeX]` blocks and searchable (v0.10.0)
-- **Cross-process indexing lock** — SQLite-based mutex prevents concurrent indexing; stale PID auto-cleanup (v0.9.0)
-- **Chunk Contextualization** — AI-powered context + keyword enrichment per chunk for improved search (v0.3.0)
+- **Multi-KB serve mode** — single MCP server process serves all knowledge bases under a base path, lazy-loaded per KB
+- **exec/serve dual mode** — headless indexing + search-only MCP server
+- **PasswordVault credentials** — API keys resolved from Windows Credential Manager, shared with AssistStudio
+- **Per-KB config.json** — source paths, model settings, credential presets per knowledge base
+- **Cancel file** — graceful exec shutdown via `{kb-path}/cancel` file
+- **PDF indexing** — `.pdf` files indexed and searchable with page-by-page text extraction
+- **Math equation indexing** — DOCX/HWPX math equations extracted as `[math: LaTeX]` blocks and searchable
+- **Cross-process indexing lock** — SQLite-based mutex prevents concurrent indexing; stale PID auto-cleanup
+- **Chunk contextualization** — AI-powered context + keyword enrichment per chunk for improved search
 - **Hybrid search** — BM25 keyword (FTS5) + semantic vector search, fused via Reciprocal Rank Fusion (RRF)
 - **Embedding optional** — BM25 keyword search works without any embedding server configured
 - **4 MCP tools** — KB listing, hybrid search, chunk retrieval, index info
@@ -138,7 +138,7 @@ All tools (except `list_knowledge_bases`) require a `kb_id` parameter to specify
 | `list_knowledge_bases` | List all available KBs with status (file/chunk counts, indexing status) |
 | `search_documents` | Hybrid BM25 + vector search with RRF fusion |
 | `get_document_chunk` | Retrieve full content of a specific chunk by ID |
-| `get_index_info` | Index metadata (file/chunk counts, prompt config, stale detection, indexing lock status) |
+| `get_index_info` | Index metadata (file/chunk counts, prompt config, stale detection, indexing lock status). Internal — for host application use |
 
 ### Search Modes
 

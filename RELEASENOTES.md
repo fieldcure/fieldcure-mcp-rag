@@ -1,5 +1,23 @@
 ﻿# Release Notes
 
+## v1.0.0 (2026-04-06)
+
+### Stable Release
+
+First stable release. Tool signatures, search behavior, and config.json schema are now covered by semver.
+
+### Changed
+
+- **Tool annotations completed** — all 4 tools declare `ReadOnly=true`, `Destructive=false`, `Idempotent=true`
+- `FieldCure.DocumentParsers` 1.x — DOCX, HWPX, XLSX, PPTX, PDF text extraction
+- `FieldCure.DocumentParsers.Pdf` 1.x
+
+### Improved
+
+- Added XML doc comments to all private/static methods (Program.cs, IndexingEngine, SqliteVectorStore)
+
+---
+
 ## v0.12.2 (2026-04-03)
 
 ### Changed

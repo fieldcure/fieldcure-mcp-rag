@@ -6,7 +6,7 @@
     {
       "registry_name": "nuget",
       "name": "FieldCure.Mcp.Rag",
-      "version": "0.12.2",
+      "version": "1.0.0",
       "runtime": "dotnet",
       "source": "DotnetTool",
       "command": "fieldcure-mcp-rag",
@@ -18,6 +18,6 @@
     "source": "github"
   },
   "version_detail": {
-    "version": "0.12.2"
+    "version": "1.0.0"
   }
 }

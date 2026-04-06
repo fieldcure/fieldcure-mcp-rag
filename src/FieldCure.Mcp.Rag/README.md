@@ -8,7 +8,7 @@
 dotnet tool install -g FieldCure.Mcp.Rag
 ```
 
-## Architecture (v0.12.0)
+## Architecture
 
 ```
 fieldcure-mcp-rag
