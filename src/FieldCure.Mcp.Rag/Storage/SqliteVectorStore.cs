@@ -90,6 +90,9 @@ public sealed class SqliteVectorStore : IDisposable
         MigrateEnrichedColumn(conn);
     }
 
+    /// <summary>
+    /// Adds the 'enriched' column to the chunks table if missing (v0.2.0 → v0.3.0 migration).
+    /// </summary>
     static void MigrateEnrichedColumn(SqliteConnection conn)
     {
         using var pragmaCmd = conn.CreateCommand();
@@ -452,6 +455,9 @@ public sealed class SqliteVectorStore : IDisposable
         return tokens.Count == 0 ? "" : string.Join(" OR ", tokens);
     }
 
+    /// <summary>
+    /// Wraps an FTS5 token in double quotes, escaping internal quotes.
+    /// </summary>
     static string EscapeFtsToken(string token)
     {
         // Wrap in double quotes to handle special characters in FTS5
@@ -596,6 +602,9 @@ public sealed class SqliteVectorStore : IDisposable
         }
     }
 
+    /// <summary>
+    /// Checks whether a process with the given PID is still running.
+    /// </summary>
     static bool IsProcessAlive(int pid)
     {
         var procs = Process.GetProcesses();
@@ -610,16 +619,19 @@ public sealed class SqliteVectorStore : IDisposable
         // Connection pooling is handled by SqliteConnection; nothing to dispose at store level.
     }
 
+    /// <summary>Serializes a float vector to a byte array for SQLite BLOB storage.</summary>
     static byte[] SerializeVector(float[] vector)
     {
         return MemoryMarshal.AsBytes(vector.AsSpan()).ToArray();
     }
 
+    /// <summary>Deserializes a byte array from SQLite BLOB back to a float vector.</summary>
     static float[] DeserializeVector(byte[] bytes)
     {
         return MemoryMarshal.Cast<byte, float>(bytes).ToArray();
     }
 
+    /// <summary>Computes cosine similarity between two vectors using SIMD acceleration.</summary>
     static float CosineSimilarity(float[] a, float[] b)
     {
         if (a.Length != b.Length || a.Length == 0)

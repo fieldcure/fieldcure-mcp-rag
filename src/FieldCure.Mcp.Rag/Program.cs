@@ -34,6 +34,9 @@ return PrintUsage();
 
 // ── Serve Mode ──────────────────────────────────────────────────────────────
 
+/// <summary>
+/// Starts the multi-KB MCP search server in stdio mode.
+/// </summary>
 async Task<int> RunServeAsync(string[] args)
 {
     var basePath = ParseArg(args, "--base-path");
@@ -76,6 +79,9 @@ async Task<int> RunServeAsync(string[] args)
 
 // ── Exec Mode ───────────────────────────────────────────────────────────────
 
+/// <summary>
+/// Runs headless indexing for a single knowledge base.
+/// </summary>
 async Task<int> RunExecAsync(string[] args)
 {
     var kbPath = ParseArg(args, "--path");
@@ -126,6 +132,9 @@ async Task<int> RunExecAsync(string[] args)
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+/// <summary>
+/// Parses a named argument value from the command-line args (e.g., --base-path /foo).
+/// </summary>
 static string? ParseArg(string[] args, string name)
 {
     for (int i = 0; i < args.Length - 1; i++)
@@ -137,6 +146,9 @@ static string? ParseArg(string[] args, string name)
     return null;
 }
 
+/// <summary>
+/// Creates an embedding provider from the given configuration using credential lookup.
+/// </summary>
 static IEmbeddingProvider CreateEmbeddingProvider(ProviderConfig config, ICredentialService credentials)
 {
     if (string.IsNullOrEmpty(config.Model))
@@ -156,6 +168,9 @@ static IEmbeddingProvider CreateEmbeddingProvider(ProviderConfig config, ICreden
     return new OpenAiCompatibleEmbeddingProvider(baseUrl, apiKey, config.Model, config.Dimension);
 }
 
+/// <summary>
+/// Creates a chunk contextualizer (Anthropic or OpenAI-compatible) from the given configuration.
+/// </summary>
 static IChunkContextualizer CreateContextualizer(ProviderConfig config, ICredentialService credentials)
 {
     if (string.IsNullOrEmpty(config.Model))
@@ -179,6 +194,9 @@ static IChunkContextualizer CreateContextualizer(ProviderConfig config, ICredent
     return new OpenAiChunkContextualizer(baseUrl, config.Model, apiKey);
 }
 
+/// <summary>
+/// Prints CLI usage information to stderr and returns exit code 1.
+/// </summary>
 static int PrintUsage()
 {
     Console.Error.WriteLine("FieldCure RAG — Document indexing and hybrid search engine");

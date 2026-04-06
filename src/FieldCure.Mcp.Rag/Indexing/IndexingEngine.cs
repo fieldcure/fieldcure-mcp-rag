@@ -296,6 +296,9 @@ public sealed class IndexingEngine
             File.Delete(cancelPath);
     }
 
+    /// <summary>
+    /// Extracts text content from a file using DocumentParsers, falling back to raw read for .txt/.md.
+    /// </summary>
     static async Task<string> ParseDocumentAsync(string filePath)
     {
         var extension = Path.GetExtension(filePath).ToLowerInvariant();
@@ -313,6 +316,9 @@ public sealed class IndexingEngine
         return "";
     }
 
+    /// <summary>
+    /// Computes a SHA-256 hash of the file contents for change detection.
+    /// </summary>
     static async Task<string> ComputeFileHashAsync(string filePath)
     {
         await using var stream = File.OpenRead(filePath);
@@ -320,6 +326,9 @@ public sealed class IndexingEngine
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
+    /// <summary>
+    /// Computes a truncated SHA-256 hash (first 16 hex chars) for a string value.
+    /// </summary>
     static string ComputeStringHash(string input)
     {
         var bytes = Encoding.UTF8.GetBytes(input);
