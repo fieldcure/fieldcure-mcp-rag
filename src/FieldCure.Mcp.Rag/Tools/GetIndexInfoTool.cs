@@ -13,7 +13,7 @@ public static class GetIndexInfoTool
 {
     static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    [McpServerTool(Name = "get_index_info"),
+    [McpServerTool(Name = "get_index_info", ReadOnly = true, Destructive = false, Idempotent = true),
      Description(
         "Internal tool for host application. Returns index metadata including " +
         "file/chunk counts, indexing status, and prompt hash for " +

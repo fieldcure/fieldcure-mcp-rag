@@ -14,7 +14,7 @@ public static class ListKnowledgeBasesTool
 {
     static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    [McpServerTool(Name = "list_knowledge_bases"),
+    [McpServerTool(Name = "list_knowledge_bases", ReadOnly = true, Destructive = false, Idempotent = true),
      Description(
         "Lists all available knowledge bases with their status. " +
         "Returns ID, name, file/chunk counts, and indexing status for each KB.")]

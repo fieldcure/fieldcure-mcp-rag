@@ -7,7 +7,7 @@ namespace FieldCure.Mcp.Rag.Tools;
 [McpServerToolType]
 public static class GetDocumentChunkTool
 {
-    [McpServerTool(Name = "get_document_chunk"), Description(
+    [McpServerTool(Name = "get_document_chunk", ReadOnly = true, Destructive = false, Idempotent = true), Description(
         "Retrieves the full content of a specific chunk by its ID. " +
         "Use after search_documents to get complete text of a result.")]
     public static async Task<string> GetDocumentChunk(

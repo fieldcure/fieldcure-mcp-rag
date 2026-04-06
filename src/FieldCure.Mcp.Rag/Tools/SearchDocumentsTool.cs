@@ -15,7 +15,7 @@ public static class SearchDocumentsTool
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
     };
 
-    [McpServerTool(Name = "search_documents"), Description(
+    [McpServerTool(Name = "search_documents", ReadOnly = true, Destructive = false, Idempotent = true), Description(
         "Searches documents in a knowledge base using hybrid BM25 keyword + vector semantic search. " +
         "Returns ranked results with source file and content preview.")]
     public static async Task<string> SearchDocuments(
