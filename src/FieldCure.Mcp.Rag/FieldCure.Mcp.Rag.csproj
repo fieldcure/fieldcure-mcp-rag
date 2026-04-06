@@ -19,11 +19,12 @@
     <PackageProjectUrl>https://github.com/fieldcure/fieldcure-mcp-rag</PackageProjectUrl>
     <RepositoryUrl>https://github.com/fieldcure/fieldcure-mcp-rag</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageTags>mcp;rag;embedding;vector-search;bm25;hybrid-search;ai;contextualization;chunk-enrichment</PackageTags>
+    <PackageTags>mcp;mcp-server;ai;dotnet;rag;embedding;vector-search;knowledge-base;bm25</PackageTags>
     <PackageReleaseNotes>v0.12.2: Upgrade ModelContextProtocol SDK to 1.2.0.</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>Logo.png</PackageIcon>
 
+    <PackageType>McpServer</PackageType>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>fieldcure-mcp-rag</ToolCommandName>
   </PropertyGroup>
@@ -35,6 +36,7 @@
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="" />
     <None Include="Logo.png" Pack="true" PackagePath="" />
+    <None Include=".mcp/server.json" Pack="true" PackagePath=".mcp/" />
   </ItemGroup>
 
   <ItemGroup>
