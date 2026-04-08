@@ -135,8 +135,6 @@ public sealed class IndexingEngine
                         if (storedHash == hash)
                         {
                             skipped++;
-                            fileIndex++;
-                            _store.UpdateProgress(fileIndex, files.Count);
                             continue;
                         }
                     }
@@ -148,8 +146,6 @@ public sealed class IndexingEngine
                     if (string.IsNullOrWhiteSpace(text))
                     {
                         skipped++;
-                        fileIndex++;
-                        _store.UpdateProgress(fileIndex, files.Count);
                         continue;
                     }
 
@@ -161,8 +157,6 @@ public sealed class IndexingEngine
                     if (chunks.Count == 0)
                     {
                         skipped++;
-                        fileIndex++;
-                        _store.UpdateProgress(fileIndex, files.Count);
                         continue;
                     }
 
@@ -222,6 +216,7 @@ public sealed class IndexingEngine
                 {
                     failed++;
                     _logger.LogError(ex, "Failed to index {Path}", storagePath);
+                    logWriter.WriteLine($"[FAILED] {storagePath} — {ex.GetType().Name}: {ex.Message}");
                 }
                 finally
                 {
