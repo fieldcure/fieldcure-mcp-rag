@@ -109,7 +109,7 @@ public static class CheckChangesTool
             failed_files = failedFiles,
             is_prompt_stale = isPromptStale,
             is_clean = addedFiles.Count == 0 && modifiedFiles.Count == 0
-                       && deletedFiles.Count == 0 && failedFiles.Count == 0 && !isPromptStale,
+                       && deletedFiles.Count == 0 && !isPromptStale,
         };
 
         return JsonSerializer.Serialize(result, JsonOptions);
