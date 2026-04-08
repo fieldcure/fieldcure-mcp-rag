@@ -26,7 +26,8 @@ public sealed class IndexingEngine
         ".txt", ".md"
     };
 
-    static readonly HashSet<string> SupportedExtensions =
+    /// <summary>All file extensions supported by the indexing engine.</summary>
+    internal static readonly HashSet<string> SupportedExtensions =
         new(DocumentParserFactory.SupportedExtensions.Concat(PlainTextExtensions), StringComparer.OrdinalIgnoreCase);
 
     readonly string _kbPath;

@@ -39,6 +39,7 @@ public static class GetIndexInfoTool
             ChunkContextualizerHelper.DefaultSystemPrompt);
 
         var lockInfo = store.GetLockInfo();
+        var lastIndexedAt = await store.GetLastIndexedAtAsync();
 
         var result = new
         {
@@ -47,6 +48,7 @@ public static class GetIndexInfoTool
             folder = kb.KbPath,
             total_files = indexedPaths.Count,
             total_chunks = totalChunks,
+            last_indexed_at = lastIndexedAt,
             is_indexing = lockInfo.IsIndexing,
             indexing_progress = lockInfo.IsIndexing
                 ? new { current = lockInfo.Current, total = lockInfo.Total, pid = lockInfo.Pid }

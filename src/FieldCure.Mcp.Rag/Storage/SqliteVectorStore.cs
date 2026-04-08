@@ -321,6 +321,16 @@ public sealed class SqliteVectorStore : IDisposable
         return paths;
     }
 
+    /// <summary>Returns the most recent indexed_at timestamp (ISO 8601 UTC), or null if empty.</summary>
+    public async Task<string?> GetLastIndexedAtAsync()
+    {
+        await using var conn = OpenConnection();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT MAX(indexed_at) FROM file_index";
+        var result = await cmd.ExecuteScalarAsync();
+        return result as string;
+    }
+
     /// <summary>
     /// Removes all chunks, embeddings, and the file_index record for the given path.
     /// Called when a previously indexed file no longer exists on disk.
