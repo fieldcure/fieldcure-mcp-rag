@@ -1,11 +1,17 @@
 ﻿# Release Notes
 
-## v1.1.0 (2026-04-08)
+## v1.2.0 (2026-04-08)
 
 ### Added
 
-- **`check_changes` tool** — dry-run filesystem scan that compares source files against the index; returns added/modified/deleted file counts and paths with `is_prompt_stale` and `is_clean` flags
+- **`check_changes` tool** — dry-run filesystem scan that compares source files against the index; returns added/modified/deleted/failed file counts and paths with `is_prompt_stale` and `is_clean` flags
 - **`last_indexed_at` in `get_index_info`** — most recent indexing timestamp (ISO 8601 UTC) from `file_index`
+- **Failed file tracking** — indexing persists `last_failed_count`, `last_failed_files`, and `last_failed_reasons` to `index_metadata`; `get_index_info` returns these fields; `check_changes` separates known-failed files from "added"
+
+### Fixed
+
+- **Progress double-increment** — `fileIndex++` was called in both try and finally blocks, causing progress to exceed total (e.g. 12/8 for 8 files)
+- **Missing failure log** — failed file path and exception now written to `index_timing.log`
 
 ### Changed
 
