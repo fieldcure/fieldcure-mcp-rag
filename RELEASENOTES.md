@@ -1,5 +1,13 @@
 ﻿# Release Notes
 
+## v1.3.1 (2026-04-08)
+
+### Fixed
+
+- **Tesseract native DLL missing in dotnet tool** — upgraded `DocumentParsers.Pdf.Ocr` to 1.0.1 which includes `leptonica-1.82.0.dll` and `tesseract50.dll` via `buildTransitive/.targets`, fixing `DllNotFoundException` on server startup
+
+---
+
 ## v1.3.0 (2026-04-08)
 
 ### Added

@@ -269,5 +269,9 @@ nul
 PublishSettings.props
 SigningSettings.props
 
+# Temporary publish/pack output
+tmp-publish/
+nupkg/
+
 # Design documents (internal specs, not for distribution)
 todo/
