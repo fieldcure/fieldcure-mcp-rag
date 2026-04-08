@@ -41,6 +41,11 @@ public static class GetIndexInfoTool
         var lockInfo = store.GetLockInfo();
         var lastIndexedAt = await store.GetLastIndexedAtAsync();
 
+        var failedCountStr = await store.GetMetadataAsync("last_failed_count");
+        var failedCount = int.TryParse(failedCountStr, out var fc) ? fc : 0;
+        var failedFilesJson = await store.GetMetadataAsync("last_failed_files");
+        var failedReasonsJson = await store.GetMetadataAsync("last_failed_reasons");
+
         var result = new
         {
             kb_id,
@@ -57,6 +62,11 @@ public static class GetIndexInfoTool
             effective_prompt_hash = storedHash,
             default_prompt_hash = defaultPromptHash,
             is_prompt_stale = storedHash is not null && storedHash != defaultPromptHash && storedPrompt is null,
+            last_failed_count = failedCount,
+            last_failed_files = failedFilesJson is not null
+                ? JsonSerializer.Deserialize<string[]>(failedFilesJson) : Array.Empty<string>(),
+            last_failed_reasons = failedReasonsJson is not null
+                ? JsonSerializer.Deserialize<string[]>(failedReasonsJson) : Array.Empty<string>(),
         };
 
         return JsonSerializer.Serialize(result, JsonOptions);

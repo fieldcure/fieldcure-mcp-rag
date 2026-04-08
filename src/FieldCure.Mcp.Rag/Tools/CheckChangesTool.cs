@@ -52,7 +52,15 @@ public static class CheckChangesTool
         var modifiedFiles = new List<string>();
         var deletedFiles = new List<string>();
 
-        // Added: in filesystem but not in DB
+        // 4a. Load known-failed files from last indexing
+        var failedFilesJson = await store.GetMetadataAsync("last_failed_files");
+        var knownFailed = failedFilesJson is not null
+            ? new HashSet<string>(JsonSerializer.Deserialize<string[]>(failedFilesJson)!, StringComparer.Ordinal)
+            : new HashSet<string>();
+
+        var failedFiles = new List<string>();
+
+        // Added: in filesystem but not in DB (excluding known-failed)
         // Possibly modified: in both — need hash comparison
         foreach (var (storagePath, filePath) in fsMap)
         {
@@ -60,7 +68,10 @@ public static class CheckChangesTool
 
             if (!indexedPaths.Contains(storagePath))
             {
-                addedFiles.Add(storagePath);
+                if (knownFailed.Contains(storagePath))
+                    failedFiles.Add(storagePath);
+                else
+                    addedFiles.Add(storagePath);
             }
             else
             {
@@ -91,12 +102,14 @@ public static class CheckChangesTool
             added = addedFiles.Count,
             modified = modifiedFiles.Count,
             deleted = deletedFiles.Count,
+            failed = failedFiles.Count,
             added_files = addedFiles,
             modified_files = modifiedFiles,
             deleted_files = deletedFiles,
+            failed_files = failedFiles,
             is_prompt_stale = isPromptStale,
             is_clean = addedFiles.Count == 0 && modifiedFiles.Count == 0
-                       && deletedFiles.Count == 0 && !isPromptStale,
+                       && deletedFiles.Count == 0 && failedFiles.Count == 0 && !isPromptStale,
         };
 
         return JsonSerializer.Serialize(result, JsonOptions);

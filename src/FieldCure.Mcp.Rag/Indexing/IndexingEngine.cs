@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using FieldCure.DocumentParsers;
 using FieldCure.Mcp.Rag.Chunking;
 using FieldCure.Mcp.Rag.Configuration;
@@ -99,6 +100,7 @@ public sealed class IndexingEngine
 
             // Process files
             var (indexed, skipped, failed, totalChunks) = (0, 0, 0, 0);
+            var failedFiles = new List<(string Path, string Reason)>();
             var totalSw = Stopwatch.StartNew();
             var logPath = Path.Combine(_kbPath, "index_timing.log");
             using var logWriter = new StreamWriter(logPath, append: true) { AutoFlush = true };
@@ -215,6 +217,7 @@ public sealed class IndexingEngine
                 catch (Exception ex)
                 {
                     failed++;
+                    failedFiles.Add((storagePath, $"{ex.GetType().Name}: {ex.Message}"));
                     _logger.LogError(ex, "Failed to index {Path}", storagePath);
                     logWriter.WriteLine($"[FAILED] {storagePath} — {ex.GetType().Name}: {ex.Message}");
                 }
@@ -230,6 +233,13 @@ public sealed class IndexingEngine
                           $"removed={removed} chunks={totalChunks} elapsed={totalSw.ElapsedMilliseconds}ms";
             _logger.LogInformation("{Summary}", summary);
             logWriter.WriteLine(summary);
+
+            // Persist failed file info to DB metadata for get_index_info
+            await _store.SetMetadataAsync("last_failed_count", failed.ToString());
+            await _store.SetMetadataAsync("last_failed_files",
+                JsonSerializer.Serialize(failedFiles.Select(f => f.Path)));
+            await _store.SetMetadataAsync("last_failed_reasons",
+                JsonSerializer.Serialize(failedFiles.Select(f => f.Reason)));
 
             return failed > 0 && indexed == 0 ? 1 : 0;
         }
