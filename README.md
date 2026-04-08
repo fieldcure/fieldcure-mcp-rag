@@ -23,7 +23,7 @@ fieldcure-mcp-rag
 - **PasswordVault credentials** — API keys resolved from Windows Credential Manager, shared with AssistStudio
 - **Per-KB config.json** — source paths, model settings, credential presets per knowledge base
 - **Cancel file** — graceful exec shutdown via `{kb-path}/cancel` file
-- **PDF indexing** — `.pdf` files indexed and searchable with page-by-page text extraction
+- **PDF indexing** — `.pdf` files indexed and searchable with page-by-page text extraction; scanned PDFs supported via Tesseract OCR fallback (English + Korean)
 - **Math equation indexing** — DOCX/HWPX math equations extracted as `[math: LaTeX]` blocks and searchable
 - **Cross-process indexing lock** — SQLite-based mutex prevents concurrent indexing; stale PID auto-cleanup
 - **Chunk contextualization** — AI-powered context + keyword enrichment per chunk for improved search
@@ -157,7 +157,7 @@ Document formats are provided by [FieldCure.DocumentParsers](https://github.com/
 - **HWPX** — Korean standard document (OWPML, with math equation extraction)
 - **XLSX** — Excel spreadsheets
 - **PPTX** — PowerPoint presentations
-- **PDF** — PDF text extraction with `## Page N` headers
+- **PDF** — PDF text extraction with `## Page N` headers; OCR fallback for scanned pages (Tesseract, eng+kor)
 - **TXT, MD** — Plain text / Markdown
 
 Additional formats are automatically supported when new parsers are registered.

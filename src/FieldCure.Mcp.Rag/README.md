@@ -99,7 +99,7 @@ Embedding is optional. Without it, BM25 keyword search still works.
 
 ## Supported Formats
 
-DOCX, HWPX, XLSX, PPTX, PDF, TXT, MD — auto-extends when new parsers are added to FieldCure.DocumentParsers.
+DOCX, HWPX, XLSX, PPTX, PDF (with OCR fallback for scanned pages), TXT, MD — auto-extends when new parsers are added to FieldCure.DocumentParsers.
 
 ## config.json Reference
 

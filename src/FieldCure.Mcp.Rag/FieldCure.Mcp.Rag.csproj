@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>1.2.1</Version>
+    <Version>1.3.0</Version>
     <PackageId>FieldCure.Mcp.Rag</PackageId>
 
     <Authors>Jong Hyun Kim</Authors>
@@ -20,7 +20,7 @@
     <RepositoryUrl>https://github.com/fieldcure/fieldcure-mcp-rag</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>mcp;mcp-server;ai;dotnet;rag;embedding;vector-search;knowledge-base;bm25</PackageTags>
-    <PackageReleaseNotes>v1.2.1: Exclude failed files from is_clean in check_changes to prevent misleading re-index prompts.</PackageReleaseNotes>
+    <PackageReleaseNotes>v1.3.0: OCR fallback for scanned PDFs via DocumentParsers.Pdf.Ocr (Tesseract, eng+kor).</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>Logo.png</PackageIcon>
 
@@ -46,6 +46,7 @@
     <PackageReference Include="System.Net.Http.Json" Version="8.*" />
     <PackageReference Include="FieldCure.DocumentParsers" Version="1.*" />
     <PackageReference Include="FieldCure.DocumentParsers.Pdf" Version="1.*" />
+    <PackageReference Include="FieldCure.DocumentParsers.Pdf.Ocr" Version="1.*" />
   </ItemGroup>
 
 </Project>

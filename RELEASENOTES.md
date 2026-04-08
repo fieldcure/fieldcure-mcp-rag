@@ -1,5 +1,14 @@
 ﻿# Release Notes
 
+## v1.3.0 (2026-04-08)
+
+### Added
+
+- **OCR fallback for scanned PDFs** — pages with no extractable text are rendered at 300 DPI and processed via Tesseract OCR (English + Korean, tessdata_fast)
+- `FieldCure.DocumentParsers.Pdf.Ocr` 1.x dependency with engine pool for concurrent OCR
+
+---
+
 ## v1.2.1 (2026-04-08)
 
 ### Fixed

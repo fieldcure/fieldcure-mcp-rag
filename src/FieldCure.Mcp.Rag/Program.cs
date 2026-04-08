@@ -1,6 +1,6 @@
 using System.Reflection;
 using System.Text;
-using FieldCure.DocumentParsers.Pdf;
+using FieldCure.DocumentParsers.Pdf.Ocr;
 using FieldCure.Mcp.Rag;
 using FieldCure.Mcp.Rag.Chunking;
 using FieldCure.Mcp.Rag.Configuration;
@@ -15,8 +15,8 @@ using Microsoft.Extensions.Logging;
 
 #pragma warning disable CA1416 // Platform compatibility — this tool targets Windows (AssistStudio integration)
 
-// Register PDF parser
-DocumentParserFactoryExtensions.AddPdfSupport();
+// Register PDF parser with OCR fallback for scanned PDFs
+using var ocrEngine = DocumentParserFactoryOcrExtensions.AddPdfOcrSupport();
 
 if (args.Length > 0)
 {
