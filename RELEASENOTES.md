@@ -1,5 +1,13 @@
 ﻿# Release Notes
 
+## v1.2.1 (2026-04-08)
+
+### Fixed
+
+- **`is_clean` excludes failed files** — failed files cannot be fixed by re-indexing, so `check_changes` no longer reports them as dirty; prevents misleading "re-index needed" status
+
+---
+
 ## v1.2.0 (2026-04-08)
 
 ### Added
