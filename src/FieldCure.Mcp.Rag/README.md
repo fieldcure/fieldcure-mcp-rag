@@ -75,7 +75,7 @@ Add to `claude_desktop_config.json`:
 }
 ```
 
-## Tools (4)
+## Tools (5)
 
 All tools (except `list_knowledge_bases`) require a `kb_id` parameter.
 
@@ -84,7 +84,8 @@ All tools (except `list_knowledge_bases`) require a `kb_id` parameter.
 | `list_knowledge_bases` | List all available KBs with status (file/chunk counts, indexing status) |
 | `search_documents` | Hybrid BM25 + vector search with Reciprocal Rank Fusion |
 | `get_document_chunk` | Retrieve full content of a specific chunk by ID |
-| `get_index_info` | Returns index metadata (file/chunk counts, prompt config, stale-index detection, indexing lock status). Internal — for host application use |
+| `get_index_info` | Returns index metadata (file/chunk counts, last indexed timestamp, prompt config, stale-index detection, indexing lock status). Internal — for host application use |
+| `check_changes` | Dry-run filesystem scan comparing source files against the index. Returns added/modified/deleted file paths and counts. Internal — for host application use |
 
 ## Search Modes
 

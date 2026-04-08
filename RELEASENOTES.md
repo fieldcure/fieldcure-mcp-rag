@@ -1,5 +1,18 @@
 ﻿# Release Notes
 
+## v1.1.0 (2026-04-08)
+
+### Added
+
+- **`check_changes` tool** — dry-run filesystem scan that compares source files against the index; returns added/modified/deleted file counts and paths with `is_prompt_stale` and `is_clean` flags
+- **`last_indexed_at` in `get_index_info`** — most recent indexing timestamp (ISO 8601 UTC) from `file_index`
+
+### Changed
+
+- `IndexingEngine.SupportedExtensions` — now `internal static` for tool reuse
+
+---
+
 ## v1.0.0 (2026-04-06)
 
 ### Stable Release

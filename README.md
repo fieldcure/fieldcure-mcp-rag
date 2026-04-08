@@ -138,7 +138,8 @@ All tools (except `list_knowledge_bases`) require a `kb_id` parameter to specify
 | `list_knowledge_bases` | List all available KBs with status (file/chunk counts, indexing status) |
 | `search_documents` | Hybrid BM25 + vector search with RRF fusion |
 | `get_document_chunk` | Retrieve full content of a specific chunk by ID |
-| `get_index_info` | Index metadata (file/chunk counts, prompt config, stale detection, indexing lock status). Internal — for host application use |
+| `get_index_info` | Index metadata (file/chunk counts, last indexed timestamp, prompt config, stale detection, indexing lock status). Internal — for host application use |
+| `check_changes` | Dry-run filesystem scan comparing source files against the index. Returns added/modified/deleted file paths and counts. Internal — for host application use |
 
 ### Search Modes
 
@@ -195,7 +196,8 @@ src/FieldCure.Mcp.Rag/
 │   ├── ListKnowledgeBasesTool.cs # KB listing
 │   ├── SearchDocumentsTool.cs    # Hybrid search with mode selection
 │   ├── GetDocumentChunkTool.cs   # Chunk retrieval
-│   └── GetIndexInfoTool.cs       # Index metadata
+│   ├── GetIndexInfoTool.cs       # Index metadata
+│   └── CheckChangesTool.cs      # Dry-run file change detection
 └── Models/
     ├── DocumentChunk.cs
     ├── SearchResult.cs
