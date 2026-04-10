@@ -1,4 +1,4 @@
-namespace FieldCure.Mcp.Rag.Search;
+﻿namespace FieldCure.Mcp.Rag.Search;
 
 /// <summary>
 /// Reciprocal Rank Fusion: merges multiple ranked lists into a single ranking.

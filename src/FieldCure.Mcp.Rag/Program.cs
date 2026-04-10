@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Text;
 using FieldCure.DocumentParsers.Pdf.Ocr;
 using FieldCure.Mcp.Rag;

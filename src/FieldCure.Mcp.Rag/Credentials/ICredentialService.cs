@@ -1,4 +1,4 @@
-namespace FieldCure.Mcp.Rag.Credentials;
+﻿namespace FieldCure.Mcp.Rag.Credentials;
 
 /// <summary>
 /// Credential resolution service for API keys.

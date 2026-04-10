@@ -1,4 +1,4 @@
-using FieldCure.Mcp.Rag.Embedding;
+﻿using FieldCure.Mcp.Rag.Embedding;
 using FieldCure.Mcp.Rag.Models;
 using FieldCure.Mcp.Rag.Storage;
 

@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -293,8 +293,10 @@ public sealed class IndexingEngine
         return orphans.Count;
     }
 
+    /// <summary>Checks whether a cancel file exists in the KB directory.</summary>
     bool IsCancelled() => File.Exists(Path.Combine(_kbPath, "cancel"));
 
+    /// <summary>Deletes the cancel file if it exists.</summary>
     void CleanCancelFile()
     {
         var cancelPath = Path.Combine(_kbPath, "cancel");

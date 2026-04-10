@@ -1,4 +1,4 @@
-namespace FieldCure.Mcp.Rag.Models;
+﻿namespace FieldCure.Mcp.Rag.Models;
 
 /// <summary>Indicates which search strategy was used.</summary>
 public enum SearchMode

@@ -1,4 +1,4 @@
-namespace FieldCure.Mcp.Rag.Models;
+﻿namespace FieldCure.Mcp.Rag.Models;
 
 /// <summary>Result from HybridSearcher including the search mode that was used.</summary>
 public record HybridSearchResult

@@ -1,4 +1,4 @@
-# FieldCure.Mcp.Rag
+﻿# FieldCure.Mcp.Rag
 
 **MCP RAG server with hybrid BM25 + vector search and AI-powered chunk contextualization** — indexes documents from configured source paths, enriches chunks with AI-generated context and keywords, generates embeddings via OpenAI-compatible APIs, and performs keyword (FTS5) and semantic (cosine similarity) search with Reciprocal Rank Fusion.
 

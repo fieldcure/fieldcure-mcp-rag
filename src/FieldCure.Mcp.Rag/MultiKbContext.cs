@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using FieldCure.Mcp.Rag.Configuration;
 using FieldCure.Mcp.Rag.Credentials;
 using FieldCure.Mcp.Rag.Embedding;

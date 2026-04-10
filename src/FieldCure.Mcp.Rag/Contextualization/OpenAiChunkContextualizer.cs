@@ -79,9 +79,9 @@ public sealed class OpenAiChunkContextualizer : IChunkContextualizer
 
             return ChunkContextualizerHelper.ParseEnrichedOutput(output, chunkText);
         }
-        catch
+        catch (Exception)
         {
-            // AI 호출 실패 → 원본 반환 (인덱싱 중단 안 함)
+            // AI call failed — return original chunk without blocking indexing.
             return chunkText;
         }
     }
