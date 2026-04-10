@@ -3,9 +3,11 @@
 [![NuGet](https://img.shields.io/nuget/v/FieldCure.Mcp.Rag)](https://www.nuget.org/packages/FieldCure.Mcp.Rag)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/fieldcure/fieldcure-mcp-rag/blob/main/LICENSE)
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that indexes documents and performs hybrid BM25 + vector search with Reciprocal Rank Fusion. Built with C# and the official [MCP C# SDK](https://github.com/modelcontextprotocol/csharp-sdk).
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server for indexing and searching local document collections. Supports DOCX, HWPX, PDF (with OCR), Excel, and PowerPoint, with hybrid keyword + semantic search optimized for Korean and English.
 
-## Architecture
+Built with C# and the official [MCP C# SDK](https://github.com/modelcontextprotocol/csharp-sdk).
+
+## Two Commands
 
 ```
 fieldcure-mcp-rag
@@ -18,25 +20,44 @@ fieldcure-mcp-rag
 
 ## Features
 
-- **Multi-KB serve mode** — single MCP server process serves all knowledge bases under a base path, lazy-loaded per KB
-- **exec/serve dual mode** — headless indexing + search-only MCP server
-- **PasswordVault credentials** — API keys resolved from Windows Credential Manager, shared with AssistStudio
-- **Per-KB config.json** — source paths, model settings, credential presets per knowledge base
-- **Cancel file** — graceful exec shutdown via `{kb-path}/cancel` file
-- **PDF indexing** — `.pdf` files indexed and searchable with page-by-page text extraction; scanned PDFs supported via Tesseract OCR fallback (English + Korean)
-- **Math equation indexing** — DOCX/HWPX math equations extracted as `[math: LaTeX]` blocks and searchable
-- **Cross-process indexing lock** — SQLite-based mutex prevents concurrent indexing; stale PID auto-cleanup
-- **Chunk contextualization** — AI-powered context + keyword enrichment per chunk for improved search
-- **Hybrid search** — BM25 keyword (FTS5) + semantic vector search, fused via Reciprocal Rank Fusion (RRF)
-- **Embedding optional** — BM25 keyword search works without any embedding server configured
-- **4 MCP tools** — KB listing, hybrid search, chunk retrieval, index info
-- **Incremental indexing** — SHA256 change detection, only re-indexes modified files
-- **Orphan cleanup** — automatically removes DB entries for deleted files
-- **Korean-optimized chunking** — sentence boundary splitting for Korean, decimal protection, parenthesis-aware
-- **OpenAI-compatible embeddings** — works with Ollama, LM Studio, OpenAI, Azure OpenAI, Groq, Together AI
-- **SIMD-accelerated search** — cosine similarity via `System.Numerics.Vector`
-- **SQLite storage** — WAL mode, FTS5 trigram index, single-file database, zero configuration
-- **Stdio transport** — standard MCP subprocess model via JSON-RPC over stdin/stdout
+### Search
+- Hybrid BM25 + vector search with Reciprocal Rank Fusion (RRF)
+- BM25-only fallback when no embedding provider is configured
+- Korean-optimized chunking (sentence boundary, decimal protection, parenthesis-aware)
+- SIMD-accelerated cosine similarity via `System.Numerics.Vector`
+- FTS5 trigram index for substring and CJK-friendly keyword matching
+
+### Indexing
+- Incremental indexing with SHA256 change detection
+- AI-powered chunk contextualization with bilingual keyword enrichment (see [Chunk Contextualization](#chunk-contextualization))
+- Math equation extraction from DOCX/HWPX as `[math: LaTeX]` blocks
+- PDF with OCR fallback (Tesseract eng+kor) for scanned pages
+- Cross-process indexing lock with stale PID auto-cleanup
+- Orphan cleanup for deleted files
+
+### Operations
+- exec/serve dual mode — headless indexing + read-only search server
+- Multi-KB serve: single process serves all knowledge bases under a base path, lazy-loaded per KB
+- SQLite WAL mode allows search during indexing
+- Graceful shutdown via `cancel` file
+- Per-KB `config.json` with credential presets
+
+### Integration
+- OpenAI-compatible embeddings — works with Ollama, LM Studio, OpenAI, Azure OpenAI, Groq, Together AI
+- Windows Credential Manager (PasswordVault) for API keys, shared with AssistStudio
+- Standard MCP stdio transport (JSON-RPC over stdin/stdout)
+
+## Chunk Contextualization
+
+Standard RAG chunking loses context — a sentence about "the protocol" becomes ambiguous when ripped from its surrounding paragraphs. This server addresses that with **Unified Chunk Contextualization**: a single LLM call per chunk that produces both contextual framing and bilingual (Korean + English) keywords in one pass.
+
+The result is stored alongside the original chunk text:
+
+- **Original text** is preserved for accurate retrieval display
+- **Contextualized text** is what gets embedded and indexed in BM25
+- **Bilingual keywords** enable cross-lingual search — a Korean query can retrieve English documents and vice versa
+
+This is enabled by setting `contextualizer` in `config.json`. It can be disabled (set provider/model to empty) if you prefer raw chunk indexing.
 
 ## Installation
 
@@ -57,7 +78,36 @@ dotnet build
 ## Requirements
 
 - [.NET 8.0 Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) or later
+- **Windows x64 only** — Tesseract OCR native binaries are bundled for x64
 - An embedding provider (Ollama, OpenAI, etc.) — optional, BM25 search works without it
+
+## Quick Start
+
+Index a folder and search it without any embedding setup (BM25 only):
+
+```powershell
+# 1. Install
+dotnet tool install -g FieldCure.Mcp.Rag
+
+# 2. Create a minimal config
+$kbPath = "$env:LOCALAPPDATA\FieldCure\Mcp.Rag\demo"
+New-Item -ItemType Directory -Force -Path $kbPath
+@'
+{
+  "id": "demo",
+  "name": "Demo KB",
+  "sourcePaths": ["C:\\my-docs"]
+}
+'@ | Set-Content "$kbPath\config.json"
+
+# 3. Index
+fieldcure-mcp-rag exec --path $kbPath
+
+# 4. Start the search server
+fieldcure-mcp-rag serve --base-path "$env:LOCALAPPDATA\FieldCure\Mcp.Rag"
+```
+
+For full retrieval quality with semantic search and contextualization, add `embedding` and `contextualizer` blocks to `config.json` — see [Usage](#usage) below.
 
 ## Usage
 
@@ -119,7 +169,7 @@ Add to `claude_desktop_config.json`:
 
 | Field | Description |
 |-------|-------------|
-| `id` | Knowledge base identifier (UUID) |
+| `id` | Knowledge base identifier |
 | `name` | Display name |
 | `sourcePaths` | List of folders to index (multiple supported) |
 | `contextualizer.provider` | `"anthropic"`, `"openai"`, `"ollama"`, or empty to disable |
@@ -138,8 +188,8 @@ All tools (except `list_knowledge_bases`) require a `kb_id` parameter to specify
 | `list_knowledge_bases` | List all available KBs with status (file/chunk counts, indexing status) |
 | `search_documents` | Hybrid BM25 + vector search with RRF fusion |
 | `get_document_chunk` | Retrieve full content of a specific chunk by ID |
-| `get_index_info` | Index metadata (file/chunk counts, last indexed timestamp, prompt config, stale detection, indexing lock status). Internal — for host application use |
-| `check_changes` | Dry-run filesystem scan comparing source files against the index. Returns added/modified/deleted/failed file paths and counts. Internal — for host application use |
+| `get_index_info` | Index metadata (file/chunk counts, last indexed timestamp, prompt config, stale detection, indexing lock status). *Primarily used by host applications such as AssistStudio to display KB status.* |
+| `check_changes` | Dry-run filesystem scan comparing source files against the index. Returns added/modified/deleted/failed file paths and counts. *Primarily used by host applications to surface re-indexing prompts.* |
 
 ### Search Modes
 
@@ -162,7 +212,7 @@ Document formats are provided by [FieldCure.DocumentParsers](https://github.com/
 
 Additional formats are automatically supported when new parsers are registered.
 
-## Architecture
+## Project Structure
 
 ```
 src/FieldCure.Mcp.Rag/
