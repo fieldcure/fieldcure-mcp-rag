@@ -1,5 +1,34 @@
 ﻿# Release Notes
 
+## v1.4.0 (2026-04-14)
+
+### Added
+
+- **Stage-level failure handling** — indexing pipeline now distinguishes extract, contextualize, and embed failures with dedicated exception types (`FileExtractionException`, `EmbeddingException`) and separate counters (`Failed`, `Degraded`, `PartiallyDeferred`)
+- **Atomic file replace** — `ReplaceFileChunksAsync` wraps DELETE + INSERT + file_index upsert in a single SQLite transaction; embedding failure preserves previous data instead of causing data loss
+- **Schema migration (v1.3 → v1.4)** — `AddColumnIfMissing` helper + `MigrateV04StatusColumns` adds 12 columns across `chunks`, `file_index`, and `_indexing_lock` tables with partial index `idx_chunks_status`
+- **Chunk/file status enums** — `ChunkIndexStatus` (Indexed, IndexedRaw, PendingEmbedding, PendingExtraction, Failed) and `FileIndexStatus` (Ready, Degraded, PartiallyDeferred, NeedsAction, Failed)
+- **`EnrichResult` return type** — `IChunkContextualizer.EnrichAsync` returns structured result with `IsContextualized`, `FailureReason`, `FailureType` instead of silently returning original text
+- **Contextualization logging** — failed chunks now emit `LogWarning` with chunk index and exception details; `OperationCanceledException` propagated instead of swallowed
+- **`IndexingResult` record** — `RunAsync` returns structured result replacing `int` exit code, with `Indexed`, `Skipped`, `Failed`, `Degraded`, `PartiallyDeferred`, `Duration`, and `ExitCode`
+- **`ProviderHealth` enum** — tracks embedding/contextualizer availability in `_indexing_lock.provider_health` for real-time monitoring
+- **Store API additions** — `MarkFileAsFailedAsync`, `GetPendingEmbeddingChunksAsync`, `UpdateChunkStatusAsync`, `ChunkWriteInfo`, `FileWriteInfo`, `PendingChunk`
+- **Extended `UpdateProgress`** — now accepts `currentStage`, `failedCount`, `providerHealth` with COALESCE null-preserving semantics
+- **Extended `get_index_info`** — 7 new response fields: `last_indexed_count`, `last_skipped_count`, `last_degraded_count`, `last_partially_deferred_count`, `last_run_duration_ms`, `last_run_completed_utc`, `last_provider_health`
+- **Design doc** — `docs/rag-fallback-design.md` covering pipeline architecture, exec/SQLite IPC, chunk state machine, and failure handling
+
+### Removed
+
+- **`SetFileHashAsync`** — replaced by `FileWriteInfo` in `ReplaceFileChunksAsync` for atomic file_index updates
+
+### Changed
+
+- **`IChunkContextualizer.EnrichAsync`** signature — `Task<string>` → `Task<EnrichResult>` (breaking for custom implementations)
+- **`IndexingEngine.RunAsync`** return type — `Task<int>` → `Task<IndexingResult>`
+- **Contextualizer constructors** — `AnthropicChunkContextualizer` and `OpenAiChunkContextualizer` accept optional `ILogger` parameter
+
+---
+
 ## v1.3.1 (2026-04-08)
 
 ### Fixed

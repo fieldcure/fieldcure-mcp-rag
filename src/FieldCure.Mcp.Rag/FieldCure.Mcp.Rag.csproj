@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>1.3.1</Version>
+    <Version>1.4.0</Version>
     <PackageId>FieldCure.Mcp.Rag</PackageId>
 
     <Authors>Jong Hyun Kim</Authors>
@@ -20,7 +20,7 @@
     <RepositoryUrl>https://github.com/fieldcure/fieldcure-mcp-rag</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>mcp;mcp-server;ai;dotnet;rag;embedding;vector-search;knowledge-base;bm25</PackageTags>
-    <PackageReleaseNotes>v1.3.1: Fix Tesseract native DLL missing in dotnet tool packaging (DocumentParsers.Pdf.Ocr 1.0.1).</PackageReleaseNotes>
+    <PackageReleaseNotes>v1.4.0: Stage-level failure handling, atomic indexing pipeline, schema migration with chunk/file status tracking, and contextualization failure visibility.</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>Logo.png</PackageIcon>
 
