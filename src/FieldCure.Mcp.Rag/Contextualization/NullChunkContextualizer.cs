@@ -1,3 +1,5 @@
+using FieldCure.Mcp.Rag.Models;
+
 namespace FieldCure.Mcp.Rag.Contextualization;
 
 /// <summary>
@@ -13,7 +15,7 @@ public sealed class NullChunkContextualizer : IChunkContextualizer
         set { } // No-op: null contextualizer doesn't use a prompt
     }
 
-    public Task<string> EnrichAsync(
+    public Task<EnrichResult> EnrichAsync(
         string chunkText,
         string? documentContext,
         string sourceFileName,
@@ -21,6 +23,6 @@ public sealed class NullChunkContextualizer : IChunkContextualizer
         int totalChunks,
         CancellationToken ct = default)
     {
-        return Task.FromResult(chunkText);
+        return Task.FromResult(EnrichResult.Success(chunkText));
     }
 }

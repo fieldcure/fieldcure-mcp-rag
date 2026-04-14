@@ -44,6 +44,15 @@ public static class GetIndexInfoTool
         var failedFilesJson = await store.GetMetadataAsync("last_failed_files");
         var failedReasonsJson = await store.GetMetadataAsync("last_failed_reasons");
 
+        // v1.4 metadata
+        var indexedCountStr = await store.GetMetadataAsync("last_indexed_count");
+        var skippedCountStr = await store.GetMetadataAsync("last_skipped_count");
+        var degradedCountStr = await store.GetMetadataAsync("last_degraded_count");
+        var deferredCountStr = await store.GetMetadataAsync("last_partially_deferred_count");
+        var durationMsStr = await store.GetMetadataAsync("last_run_duration_ms");
+        var runCompletedUtc = await store.GetMetadataAsync("last_run_completed_utc");
+        var providerHealthStr = await store.GetMetadataAsync("last_provider_health");
+
         var result = new
         {
             kb_id,
@@ -65,6 +74,14 @@ public static class GetIndexInfoTool
                 ? JsonSerializer.Deserialize<string[]>(failedFilesJson) : Array.Empty<string>(),
             last_failed_reasons = failedReasonsJson is not null
                 ? JsonSerializer.Deserialize<string[]>(failedReasonsJson) : Array.Empty<string>(),
+            // v1.4 fields
+            last_indexed_count = int.TryParse(indexedCountStr, out var ic) ? ic : (int?)null,
+            last_skipped_count = int.TryParse(skippedCountStr, out var sc) ? sc : (int?)null,
+            last_degraded_count = int.TryParse(degradedCountStr, out var dc) ? dc : (int?)null,
+            last_partially_deferred_count = int.TryParse(deferredCountStr, out var pd) ? pd : (int?)null,
+            last_run_duration_ms = int.TryParse(durationMsStr, out var dm) ? dm : (int?)null,
+            last_run_completed_utc = runCompletedUtc,
+            last_provider_health = int.TryParse(providerHealthStr, out var ph) ? ph : (int?)null,
         };
 
         return JsonSerializer.Serialize(result, McpJson.Indented);

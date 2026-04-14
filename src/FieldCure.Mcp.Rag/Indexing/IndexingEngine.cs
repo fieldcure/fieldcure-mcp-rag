@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -58,16 +58,19 @@ public sealed class IndexingEngine
     }
 
     /// <summary>
-    /// Runs the full indexing pipeline.
-    /// Returns 0 on success, 1 on failure, 2 on cancellation.
+    /// Runs the full indexing pipeline with stage-level failure handling.
     /// </summary>
-    public async Task<int> RunAsync(bool force, CancellationToken cancellationToken)
+    public async Task<IndexingResult> RunAsync(bool force, CancellationToken cancellationToken)
     {
         // Acquire lock
         if (!_store.AcquireLock(Environment.ProcessId))
         {
             _logger.LogError("Another process is currently indexing this knowledge base.");
-            return 1;
+            return new IndexingResult
+            {
+                Indexed = 0, Skipped = 0, Failed = 0, Degraded = 0, PartiallyDeferred = 0,
+                FailedFiles = [], Duration = TimeSpan.Zero, ExitCode = 1,
+            };
         }
 
         try
@@ -88,7 +91,11 @@ public sealed class IndexingEngine
             if (files.Count == 0)
             {
                 _logger.LogWarning("No supported files found in source paths.");
-                return 0;
+                return new IndexingResult
+                {
+                    Indexed = 0, Skipped = 0, Failed = 0, Degraded = 0, PartiallyDeferred = 0,
+                    FailedFiles = [], Duration = TimeSpan.Zero, ExitCode = 0,
+                };
             }
 
             _logger.LogInformation("Found {Count} files to process.", files.Count);
@@ -99,8 +106,9 @@ public sealed class IndexingEngine
                 _logger.LogInformation("Removed {Count} orphaned file entries.", removed);
 
             // Process files
-            var (indexed, skipped, failed, totalChunks) = (0, 0, 0, 0);
-            var failedFiles = new List<(string Path, string Reason)>();
+            var (indexed, skipped, failed, degraded, partiallyDeferred, totalChunks) = (0, 0, 0, 0, 0, 0);
+            var failedFiles = new List<FailedFile>();
+            var providerHealth = ProviderHealth.Ok;
             var totalSw = Stopwatch.StartNew();
             var logPath = Path.Combine(_kbPath, "index_timing.log");
             using var logWriter = new StreamWriter(logPath, append: true) { AutoFlush = true };
@@ -115,17 +123,22 @@ public sealed class IndexingEngine
                     _logger.LogInformation("Cancel file detected. Stopping after {Count} files.", fileIndex);
                     _store.ReleaseLock();
                     CleanCancelFile();
-                    return 2;
+
+                    totalSw.Stop();
+                    await PersistMetadataAsync(indexed, skipped, failed, degraded, partiallyDeferred,
+                        failedFiles, totalSw.Elapsed, providerHealth);
+
+                    return new IndexingResult
+                    {
+                        Indexed = indexed, Skipped = skipped, Failed = failed,
+                        Degraded = degraded, PartiallyDeferred = partiallyDeferred,
+                        FailedFiles = failedFiles, Duration = totalSw.Elapsed, ExitCode = 2,
+                    };
                 }
 
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var relativePath = Path.GetRelativePath(sourcePath, filePath).Replace('\\', '/');
-                // Prefix with source path index for uniqueness across multiple source paths
-                var sourceIndex = _config.SourcePaths.IndexOf(sourcePath);
-                var storagePath = _config.SourcePaths.Count > 1
-                    ? $"{sourceIndex}/{relativePath}"
-                    : relativePath;
+                var storagePath = ComputeStoragePath(filePath, sourcePath);
 
                 try
                 {
@@ -143,18 +156,25 @@ public sealed class IndexingEngine
 
                     var fileSw = Stopwatch.StartNew();
 
-                    // Parse
-                    var text = await ParseDocumentAsync(filePath);
+                    // === Stage 1: Extract ===
+                    string text;
+                    try
+                    {
+                        text = await ParseDocumentAsync(filePath);
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex)
+                    {
+                        throw new FileExtractionException(filePath, ex.Message, ex);
+                    }
+
                     if (string.IsNullOrWhiteSpace(text))
                     {
                         skipped++;
                         continue;
                     }
 
-                    // Delete old chunks
-                    await _store.DeleteBySourcePathAsync(storagePath);
-
-                    // Chunk
+                    // === Stage 2: Chunk ===
                     var chunks = _chunker.Split(text);
                     if (chunks.Count == 0)
                     {
@@ -162,40 +182,40 @@ public sealed class IndexingEngine
                         continue;
                     }
 
-                    // Contextualize
-                    var documentContext = ChunkContextualizerHelper.TruncateDocumentContext(text);
-                    var fileName = Path.GetFileName(filePath);
-                    var enrichedTexts = new string[chunks.Count];
+                    // === Stage 3: Contextualize (per-chunk, parallel) ===
+                    var enrichResults = await ContextualizeChunksAsync(
+                        chunks, text, filePath, cancellationToken);
 
-                    if (_contextualizer is NullChunkContextualizer)
+                    var anyContextualizationFailed = enrichResults.Any(r => !r.IsContextualized);
+                    if (anyContextualizationFailed && providerHealth == ProviderHealth.Ok)
+                        providerHealth = ProviderHealth.ContextualizerUnavailable;
+
+                    // === Stage 4: Embed (batch) ===
+                    float[][] embeddings;
+                    try
                     {
-                        for (var i = 0; i < chunks.Count; i++)
-                            enrichedTexts[i] = chunks[i].Content;
+                        _store.UpdateProgress(fileIndex, files.Count, "embedding",
+                            failed, providerHealth);
+
+                        var textsToEmbed = enrichResults.Select(r => r.Text).ToArray();
+                        embeddings = await _embeddingProvider.EmbedBatchAsync(textsToEmbed, cancellationToken);
                     }
-                    else
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex)
                     {
-                        await Parallel.ForEachAsync(
-                            Enumerable.Range(0, chunks.Count),
-                            new ParallelOptions
-                            {
-                                MaxDegreeOfParallelism = MaxContextualizationParallelism,
-                                CancellationToken = cancellationToken,
-                            },
-                            async (i, ct) =>
-                            {
-                                enrichedTexts[i] = await _contextualizer.EnrichAsync(
-                                    chunks[i].Content, documentContext, fileName, i, chunks.Count, ct);
-                            });
+                        throw new EmbeddingException(filePath, ex.Message, ex);
                     }
 
-                    // Embed
-                    var embeddings = await _embeddingProvider.EmbedBatchAsync(enrichedTexts, cancellationToken);
+                    // === Stage 5: Persist (atomic) ===
+                    var rawCount = enrichResults.Count(r => !r.IsContextualized);
+                    var fileStatus = rawCount > 0 ? FileIndexStatus.Degraded : FileIndexStatus.Ready;
 
-                    // Store
                     var pathHash = ComputeStringHash(storagePath);
+                    var docChunks = new DocumentChunk[chunks.Count];
+                    var chunkInfos = new ChunkWriteInfo[chunks.Count];
                     for (var i = 0; i < chunks.Count; i++)
                     {
-                        var chunk = new DocumentChunk
+                        docChunks[i] = new DocumentChunk
                         {
                             Id = $"{pathHash}_{i}",
                             SourcePath = storagePath,
@@ -203,51 +223,177 @@ public sealed class IndexingEngine
                             Content = chunks[i].Content,
                             CharOffset = chunks[i].CharOffset,
                         };
-                        await _store.UpsertChunkAsync(chunk, embeddings[i], _embeddingProvider.ModelId, enrichedTexts[i]);
+                        chunkInfos[i] = new ChunkWriteInfo
+                        {
+                            EnrichedText = enrichResults[i].Text,
+                            Status = ChunkIndexStatus.Indexed,
+                            IsContextualized = enrichResults[i].IsContextualized,
+                            LastError = enrichResults[i].FailureReason,
+                        };
                     }
 
-                    await _store.SetFileHashAsync(storagePath, hash);
+                    var fileInfo = new FileWriteInfo
+                    {
+                        FileHash = hash,
+                        Status = fileStatus,
+                        ChunksRaw = rawCount,
+                        ChunksPending = 0,
+                    };
+
+                    await _store.ReplaceFileChunksAsync(
+                        storagePath, docChunks, embeddings, _embeddingProvider.ModelId,
+                        chunkInfos, fileInfo);
+
+                    if (fileStatus == FileIndexStatus.Degraded) degraded++;
                     indexed++;
                     totalChunks += chunks.Count;
 
-                    var line = $"[Index] {fileName} — {chunks.Count} chunks, total={fileSw.ElapsedMilliseconds}ms";
+                    var line = $"[Index] {Path.GetFileName(filePath)} — {chunks.Count} chunks" +
+                               (rawCount > 0 ? $" ({rawCount} raw)" : "") +
+                               $", total={fileSw.ElapsedMilliseconds}ms";
                     _logger.LogInformation("{Line}", line);
                     logWriter.WriteLine(line);
                 }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (FileExtractionException ex)
+                {
+                    // Stage 1 failure — preserve existing chunks, mark file_index
+                    await _store.MarkFileAsFailedAsync(
+                        storagePath, FileIndexStatus.NeedsAction, ex.Message, "extract");
+                    failed++;
+                    failedFiles.Add(new FailedFile(storagePath,
+                        $"{ex.InnerException?.GetType().Name ?? "Exception"}: {ex.Message}"));
+                    _logger.LogWarning(ex,
+                        "[Indexing] Extract failed for {File}, previous chunks preserved", storagePath);
+                    logWriter.WriteLine($"[FAILED:extract] {storagePath} — {ex.Message}");
+                }
+                catch (EmbeddingException ex)
+                {
+                    // Stage 4 failure — preserve existing chunks, mark as deferred
+                    await _store.MarkFileAsFailedAsync(
+                        storagePath, FileIndexStatus.PartiallyDeferred, ex.Message, "embed");
+                    partiallyDeferred++;
+                    providerHealth = ProviderHealth.EmbeddingUnavailable;
+                    _logger.LogWarning(ex,
+                        "[Indexing] Embedding failed for {File}, deferred to next cycle", storagePath);
+                    logWriter.WriteLine($"[DEFERRED:embed] {storagePath} — {ex.Message}");
+                }
                 catch (Exception ex)
                 {
+                    // Unexpected failure — do not touch file_index
                     failed++;
-                    failedFiles.Add((storagePath, $"{ex.GetType().Name}: {ex.Message}"));
-                    _logger.LogError(ex, "Failed to index {Path}", storagePath);
+                    failedFiles.Add(new FailedFile(storagePath, $"{ex.GetType().Name}: {ex.Message}"));
+                    _logger.LogError(ex, "[Indexing] Unexpected failure for {File}", storagePath);
                     logWriter.WriteLine($"[FAILED] {storagePath} — {ex.GetType().Name}: {ex.Message}");
                 }
                 finally
                 {
                     fileIndex++;
-                    _store.UpdateProgress(fileIndex, files.Count);
+                    _store.UpdateProgress(fileIndex, files.Count,
+                        currentStage: null, failedCount: failed, providerHealth: providerHealth);
                 }
             }
 
             totalSw.Stop();
+            var duration = totalSw.Elapsed;
+
             var summary = $"[Index] Done — indexed={indexed} skipped={skipped} failed={failed} " +
+                          $"degraded={degraded} deferred={partiallyDeferred} " +
                           $"removed={removed} chunks={totalChunks} elapsed={totalSw.ElapsedMilliseconds}ms";
             _logger.LogInformation("{Summary}", summary);
             logWriter.WriteLine(summary);
 
-            // Persist failed file info to DB metadata for get_index_info
-            await _store.SetMetadataAsync("last_failed_count", failed.ToString());
-            await _store.SetMetadataAsync("last_failed_files",
-                JsonSerializer.Serialize(failedFiles.Select(f => f.Path)));
-            await _store.SetMetadataAsync("last_failed_reasons",
-                JsonSerializer.Serialize(failedFiles.Select(f => f.Reason)));
+            await PersistMetadataAsync(indexed, skipped, failed, degraded, partiallyDeferred,
+                failedFiles, duration, providerHealth);
 
-            return failed > 0 && indexed == 0 ? 1 : 0;
+            var exitCode = failed > 0 && indexed == 0 ? 1 : 0;
+            return new IndexingResult
+            {
+                Indexed = indexed, Skipped = skipped, Failed = failed,
+                Degraded = degraded, PartiallyDeferred = partiallyDeferred,
+                FailedFiles = failedFiles, Duration = duration, ExitCode = exitCode,
+            };
         }
         finally
         {
             _store.ReleaseLock();
         }
     }
+
+    #region Stage Methods
+
+    /// <summary>
+    /// Stage 3: Contextualize all chunks in parallel.
+    /// Returns <see cref="EnrichResult"/> per chunk — failures are non-fatal.
+    /// </summary>
+    async Task<EnrichResult[]> ContextualizeChunksAsync(
+        IReadOnlyList<(string Content, int CharOffset)> chunks,
+        string documentText,
+        string filePath,
+        CancellationToken ct)
+    {
+        var results = new EnrichResult[chunks.Count];
+        var documentContext = ChunkContextualizerHelper.TruncateDocumentContext(documentText);
+        var fileName = Path.GetFileName(filePath);
+
+        if (_contextualizer is NullChunkContextualizer)
+        {
+            for (var i = 0; i < chunks.Count; i++)
+                results[i] = EnrichResult.Success(chunks[i].Content);
+        }
+        else
+        {
+            await Parallel.ForEachAsync(
+                Enumerable.Range(0, chunks.Count),
+                new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = MaxContextualizationParallelism,
+                    CancellationToken = ct,
+                },
+                async (i, innerCt) =>
+                {
+                    results[i] = await _contextualizer.EnrichAsync(
+                        chunks[i].Content, documentContext, fileName, i, chunks.Count, innerCt);
+                });
+        }
+
+        return results;
+    }
+
+    #endregion
+
+    #region Metadata
+
+    /// <summary>
+    /// Persists all post-run metadata to index_metadata table.
+    /// </summary>
+    async Task PersistMetadataAsync(
+        int indexed, int skipped, int failed, int degraded, int partiallyDeferred,
+        List<FailedFile> failedFiles, TimeSpan duration, ProviderHealth providerHealth)
+    {
+        // Legacy keys (backward compatible)
+        await _store.SetMetadataAsync("last_failed_count", failed.ToString());
+        await _store.SetMetadataAsync("last_failed_files",
+            JsonSerializer.Serialize(failedFiles.Select(f => f.Path)));
+        await _store.SetMetadataAsync("last_failed_reasons",
+            JsonSerializer.Serialize(failedFiles.Select(f => f.Reason)));
+
+        // v1.4 keys
+        await _store.SetMetadataAsync("last_indexed_count", indexed.ToString());
+        await _store.SetMetadataAsync("last_skipped_count", skipped.ToString());
+        await _store.SetMetadataAsync("last_degraded_count", degraded.ToString());
+        await _store.SetMetadataAsync("last_partially_deferred_count", partiallyDeferred.ToString());
+        await _store.SetMetadataAsync("last_run_duration_ms", ((int)duration.TotalMilliseconds).ToString());
+        await _store.SetMetadataAsync("last_run_completed_utc", DateTimeOffset.UtcNow.ToString("O"));
+        await _store.SetMetadataAsync("last_provider_health", ((int)providerHealth).ToString());
+    }
+
+    #endregion
+
+    #region File Collection & Helpers
 
     /// <summary>Collects all supported files from configured source paths.</summary>
     List<(string FilePath, string SourcePath)> CollectFiles()
@@ -277,12 +423,7 @@ public sealed class IndexingEngine
     {
         var actualPaths = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (filePath, sourcePath) in files)
-        {
-            var rel = Path.GetRelativePath(sourcePath, filePath).Replace('\\', '/');
-            var sourceIndex = _config.SourcePaths.IndexOf(sourcePath);
-            var storagePath = _config.SourcePaths.Count > 1 ? $"{sourceIndex}/{rel}" : rel;
-            actualPaths.Add(storagePath);
-        }
+            actualPaths.Add(ComputeStoragePath(filePath, sourcePath));
 
         var indexedPaths = await _store.GetIndexedPathsAsync();
         var orphans = indexedPaths.Where(p => !actualPaths.Contains(p)).ToList();
@@ -291,6 +432,14 @@ public sealed class IndexingEngine
             await _store.PurgeSourcePathAsync(orphan);
 
         return orphans.Count;
+    }
+
+    /// <summary>Computes the storage-relative path for a file.</summary>
+    string ComputeStoragePath(string filePath, string sourcePath)
+    {
+        var relativePath = Path.GetRelativePath(sourcePath, filePath).Replace('\\', '/');
+        var sourceIndex = _config.SourcePaths.IndexOf(sourcePath);
+        return _config.SourcePaths.Count > 1 ? $"{sourceIndex}/{relativePath}" : relativePath;
     }
 
     /// <summary>Checks whether a cancel file exists in the KB directory.</summary>
@@ -324,9 +473,7 @@ public sealed class IndexingEngine
         return "";
     }
 
-    /// <summary>
-    /// Computes a SHA-256 hash of the file contents for change detection.
-    /// </summary>
+    /// <summary>Computes a SHA-256 hash of the file contents for change detection.</summary>
     static async Task<string> ComputeFileHashAsync(string filePath)
     {
         await using var stream = File.OpenRead(filePath);
@@ -334,13 +481,13 @@ public sealed class IndexingEngine
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
-    /// <summary>
-    /// Computes a truncated SHA-256 hash (first 16 hex chars) for a string value.
-    /// </summary>
+    /// <summary>Computes a truncated SHA-256 hash (first 16 hex chars) for a string value.</summary>
     static string ComputeStringHash(string input)
     {
         var bytes = Encoding.UTF8.GetBytes(input);
         var hash = SHA256.HashData(bytes);
         return Convert.ToHexString(hash)[..16].ToLowerInvariant();
     }
+
+    #endregion
 }

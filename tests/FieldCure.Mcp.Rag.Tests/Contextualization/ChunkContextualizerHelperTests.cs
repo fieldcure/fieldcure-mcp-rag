@@ -1,4 +1,5 @@
 using FieldCure.Mcp.Rag.Contextualization;
+using FieldCure.Mcp.Rag.Models;
 
 namespace FieldCure.Mcp.Rag.Tests.Contextualization;
 
@@ -120,6 +121,99 @@ public class ChunkContextualizerHelperTests
         var contextualizer = new NullChunkContextualizer();
         var result = await contextualizer.EnrichAsync(
             "test chunk", "doc context", "file.txt", 0, 1);
-        Assert.AreEqual("test chunk", result);
+        Assert.AreEqual("test chunk", result.Text);
+        Assert.IsTrue(result.IsContextualized);
+    }
+
+    // --- EnrichResult Tests ---
+
+    [TestMethod]
+    public void EnrichResult_Success_PreservesEnrichedText()
+    {
+        var result = EnrichResult.Success("enriched text with context and keywords");
+
+        Assert.AreEqual("enriched text with context and keywords", result.Text);
+        Assert.IsTrue(result.IsContextualized);
+        Assert.IsNull(result.FailureReason);
+        Assert.IsNull(result.FailureType);
+    }
+
+    [TestMethod]
+    public void EnrichResult_Failed_PreservesOriginalText()
+    {
+        var ex = new HttpRequestException("Connection refused");
+        var result = EnrichResult.Failed("original chunk text", ex);
+
+        Assert.AreEqual("original chunk text", result.Text);
+        Assert.IsFalse(result.IsContextualized);
+        Assert.AreEqual("Connection refused", result.FailureReason);
+        Assert.AreEqual("HttpRequestException", result.FailureType);
+    }
+
+    // --- AnthropicChunkContextualizer failure Tests ---
+
+    [TestMethod]
+    public async Task AnthropicContextualizer_HttpFailure_ReturnsFailedResult()
+    {
+        // Use a bogus URL that will fail immediately
+        var contextualizer = new AnthropicChunkContextualizer(
+            apiKey: "fake-key",
+            model: "claude-haiku-4-5-20251001",
+            baseUrl: "http://localhost:1"); // Port 1: guaranteed connection refused
+
+        var result = await contextualizer.EnrichAsync(
+            "test chunk", "doc context", "file.txt", 0, 1);
+
+        Assert.IsFalse(result.IsContextualized);
+        Assert.AreEqual("test chunk", result.Text);
+        Assert.IsNotNull(result.FailureReason);
+        Assert.IsNotNull(result.FailureType);
+    }
+
+    [TestMethod]
+    public async Task AnthropicContextualizer_Cancellation_PropagatesException()
+    {
+        var contextualizer = new AnthropicChunkContextualizer(
+            apiKey: "fake-key",
+            model: "claude-haiku-4-5-20251001",
+            baseUrl: "http://localhost:1");
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel(); // Pre-cancel
+
+        await Assert.ThrowsExactlyAsync<TaskCanceledException>(() =>
+            contextualizer.EnrichAsync(
+                "test chunk", "doc context", "file.txt", 0, 1, cts.Token));
+    }
+
+    [TestMethod]
+    public async Task OpenAiContextualizer_HttpFailure_ReturnsFailedResult()
+    {
+        var contextualizer = new OpenAiChunkContextualizer(
+            baseUrl: "http://localhost:1",
+            model: "gpt-4o-mini");
+
+        var result = await contextualizer.EnrichAsync(
+            "test chunk", "doc context", "file.txt", 0, 1);
+
+        Assert.IsFalse(result.IsContextualized);
+        Assert.AreEqual("test chunk", result.Text);
+        Assert.IsNotNull(result.FailureReason);
+        Assert.IsNotNull(result.FailureType);
+    }
+
+    [TestMethod]
+    public async Task OpenAiContextualizer_Cancellation_PropagatesException()
+    {
+        var contextualizer = new OpenAiChunkContextualizer(
+            baseUrl: "http://localhost:1",
+            model: "gpt-4o-mini");
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsExactlyAsync<TaskCanceledException>(() =>
+            contextualizer.EnrichAsync(
+                "test chunk", "doc context", "file.txt", 0, 1, cts.Token));
     }
 }

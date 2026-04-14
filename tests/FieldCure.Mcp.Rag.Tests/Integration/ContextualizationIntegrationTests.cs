@@ -129,7 +129,7 @@ public class ContextualizationIntegrationTests
     [TestMethod]
     public async Task MigrationFromV020_AddsEnrichedColumn()
     {
-        // Create a v0.2.0-style DB without enriched column
+        // Create a v1.1-style DB without enriched column
         var dbPath = CreateTempDb();
 
         // First create with current schema (which includes enriched)

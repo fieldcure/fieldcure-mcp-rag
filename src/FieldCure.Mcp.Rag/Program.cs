@@ -105,7 +105,7 @@ async Task<int> RunExecAsync(string[] args)
     var store = new SqliteVectorStore(dbPath);
     var chunker = new TextChunker();
     var embeddingProvider = CreateEmbeddingProvider(config.Embedding, credentials);
-    var contextualizer = CreateContextualizer(config.Contextualizer, credentials);
+    var contextualizer = CreateContextualizer(config.Contextualizer, credentials, loggerFactory);
 
     logger.LogInformation("Knowledge base: {Name} ({Id})", config.Name, config.Id);
     logger.LogInformation("Path: {Path}", kbPath);
@@ -117,7 +117,8 @@ async Task<int> RunExecAsync(string[] args)
 
     try
     {
-        return await engine.RunAsync(force, CancellationToken.None);
+        var result = await engine.RunAsync(force, CancellationToken.None);
+        return result.ExitCode;
     }
     catch (Exception ex)
     {
@@ -171,7 +172,8 @@ static IEmbeddingProvider CreateEmbeddingProvider(ProviderConfig config, ICreden
 /// <summary>
 /// Creates a chunk contextualizer (Anthropic or OpenAI-compatible) from the given configuration.
 /// </summary>
-static IChunkContextualizer CreateContextualizer(ProviderConfig config, ICredentialService credentials)
+static IChunkContextualizer CreateContextualizer(
+    ProviderConfig config, ICredentialService credentials, ILoggerFactory loggerFactory)
 {
     if (string.IsNullOrEmpty(config.Model))
         return new NullChunkContextualizer();
@@ -189,9 +191,11 @@ static IChunkContextualizer CreateContextualizer(ProviderConfig config, ICredent
     };
 
     if (config.Provider.Equals("anthropic", StringComparison.OrdinalIgnoreCase))
-        return new AnthropicChunkContextualizer(apiKey, config.Model, baseUrl);
+        return new AnthropicChunkContextualizer(
+            apiKey, config.Model, baseUrl, logger: loggerFactory.CreateLogger<AnthropicChunkContextualizer>());
 
-    return new OpenAiChunkContextualizer(baseUrl, config.Model, apiKey);
+    return new OpenAiChunkContextualizer(
+        baseUrl, config.Model, apiKey, logger: loggerFactory.CreateLogger<OpenAiChunkContextualizer>());
 }
 
 /// <summary>

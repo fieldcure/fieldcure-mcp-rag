@@ -43,9 +43,11 @@ public class HybridSearchIntegrationTests
             var embeddings = await embedder.EmbedBatchAsync(
                 chunks.Select(c => c.Content).ToList());
 
+            var docChunks = new DocumentChunk[chunks.Count];
+            var chunkInfos = new ChunkWriteInfo[chunks.Count];
             for (int i = 0; i < chunks.Count; i++)
             {
-                var chunk = new DocumentChunk
+                docChunks[i] = new DocumentChunk
                 {
                     Id = $"{path}_{i}",
                     SourcePath = path,
@@ -53,9 +55,21 @@ public class HybridSearchIntegrationTests
                     Content = chunks[i].Content,
                     CharOffset = chunks[i].CharOffset,
                 };
-                await store.UpsertChunkAsync(chunk, embeddings[i], embedder.ModelId);
+                chunkInfos[i] = new ChunkWriteInfo
+                {
+                    EnrichedText = chunks[i].Content,
+                    Status = ChunkIndexStatus.Indexed,
+                    IsContextualized = true,
+                };
             }
-            await store.SetFileHashAsync(path, $"hash_{path}");
+            var fileInfo = new FileWriteInfo
+            {
+                FileHash = $"hash_{path}",
+                Status = FileIndexStatus.Ready,
+                ChunksRaw = 0,
+                ChunksPending = 0,
+            };
+            await store.ReplaceFileChunksAsync(path, docChunks, embeddings, embedder.ModelId, chunkInfos, fileInfo);
         }
 
         return (store, searcher);

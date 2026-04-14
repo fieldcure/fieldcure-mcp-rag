@@ -1,3 +1,5 @@
+using FieldCure.Mcp.Rag.Models;
+
 namespace FieldCure.Mcp.Rag.Contextualization;
 
 /// <summary>
@@ -24,8 +26,12 @@ public interface IChunkContextualizer
     /// <param name="chunkIndex">Zero-based chunk index within the document.</param>
     /// <param name="totalChunks">Total number of chunks in the document.</param>
     /// <param name="ct">Cancellation token.</param>
-    /// <returns>Enriched text to be indexed. Original text on failure.</returns>
-    Task<string> EnrichAsync(
+    /// <returns>
+    /// An <see cref="EnrichResult"/> containing the text to index and whether
+    /// contextualization succeeded. On failure the original text is returned
+    /// with <see cref="EnrichResult.IsContextualized"/> = false.
+    /// </returns>
+    Task<EnrichResult> EnrichAsync(
         string chunkText,
         string? documentContext,
         string sourceFileName,

@@ -1,5 +1,8 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using FieldCure.Mcp.Rag.Models;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace FieldCure.Mcp.Rag.Contextualization;
 
@@ -11,6 +14,7 @@ public sealed class AnthropicChunkContextualizer : IChunkContextualizer
 {
     private readonly HttpClient _http;
     private readonly string _model;
+    private readonly ILogger _logger;
     private string _systemPrompt;
 
     /// <summary>
@@ -20,12 +24,18 @@ public sealed class AnthropicChunkContextualizer : IChunkContextualizer
     /// <param name="model">Model identifier (e.g., "claude-haiku-4-5-20251001").</param>
     /// <param name="baseUrl">API base URL. Default: "https://api.anthropic.com".</param>
     /// <param name="systemPrompt">Custom system prompt. Empty to use default.</param>
-    public AnthropicChunkContextualizer(string apiKey, string model, string baseUrl = "https://api.anthropic.com", string systemPrompt = "")
+    /// <param name="logger">Optional logger for diagnostics.</param>
+    public AnthropicChunkContextualizer(
+        string apiKey, string model,
+        string baseUrl = "https://api.anthropic.com",
+        string systemPrompt = "",
+        ILogger? logger = null)
     {
         _http = new HttpClient { BaseAddress = new Uri(baseUrl.TrimEnd('/')) };
         _http.DefaultRequestHeaders.Add("x-api-key", apiKey);
         _http.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
         _model = model;
+        _logger = logger ?? NullLogger.Instance;
         _systemPrompt = string.IsNullOrWhiteSpace(systemPrompt)
             ? ChunkContextualizerHelper.DefaultSystemPrompt
             : systemPrompt;
@@ -40,7 +50,7 @@ public sealed class AnthropicChunkContextualizer : IChunkContextualizer
             : value;
     }
 
-    public async Task<string> EnrichAsync(
+    public async Task<EnrichResult> EnrichAsync(
         string chunkText,
         string? documentContext,
         string sourceFileName,
@@ -73,12 +83,20 @@ public sealed class AnthropicChunkContextualizer : IChunkContextualizer
                 .GetProperty("text")
                 .GetString() ?? "";
 
-            return ChunkContextualizerHelper.ParseEnrichedOutput(output, chunkText);
+            return EnrichResult.Success(
+                ChunkContextualizerHelper.ParseEnrichedOutput(output, chunkText));
         }
-        catch (Exception)
+        catch (OperationCanceledException)
         {
-            // AI call failed — return original chunk without blocking indexing.
-            return chunkText;
+            throw; // Do not swallow user cancellation
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                "[RAG] Contextualization failed for chunk {ChunkIndex}/{TotalChunks} of {File}; " +
+                "falling back to raw text. {ExceptionType}: {Message}",
+                chunkIndex, totalChunks, sourceFileName, ex.GetType().Name, ex.Message);
+            return EnrichResult.Failed(chunkText, ex);
         }
     }
 }
