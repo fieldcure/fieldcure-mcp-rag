@@ -12,8 +12,6 @@ namespace FieldCure.Mcp.Rag.Tools;
 [McpServerToolType]
 public static class ListKnowledgeBasesTool
 {
-    static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-
     [McpServerTool(Name = "list_knowledge_bases", ReadOnly = true, Destructive = false, Idempotent = true),
      Description(
         "Lists all available knowledge bases with their status. " +
@@ -35,6 +33,6 @@ public static class ListKnowledgeBasesTool
             total = kbs.Count,
         };
 
-        return JsonSerializer.Serialize(response, JsonOptions);
+        return JsonSerializer.Serialize(response, McpJson.Indented);
     }
 }

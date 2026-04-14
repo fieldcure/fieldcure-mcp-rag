@@ -34,6 +34,6 @@ public static class GetDocumentChunkTool
             metadata = chunk.Metadata,
         };
 
-        return JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true });
+        return JsonSerializer.Serialize(response, McpJson.Indented);
     }
 }

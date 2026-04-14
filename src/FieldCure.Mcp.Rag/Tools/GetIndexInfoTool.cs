@@ -11,8 +11,6 @@ namespace FieldCure.Mcp.Rag.Tools;
 [McpServerToolType]
 public static class GetIndexInfoTool
 {
-    static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-
     [McpServerTool(Name = "get_index_info", ReadOnly = true, Destructive = false, Idempotent = true),
      Description(
         "Internal tool for host application. Returns index metadata including " +
@@ -69,6 +67,6 @@ public static class GetIndexInfoTool
                 ? JsonSerializer.Deserialize<string[]>(failedReasonsJson) : Array.Empty<string>(),
         };
 
-        return JsonSerializer.Serialize(result, JsonOptions);
+        return JsonSerializer.Serialize(result, McpJson.Indented);
     }
 }

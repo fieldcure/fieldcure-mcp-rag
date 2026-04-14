@@ -14,8 +14,6 @@ namespace FieldCure.Mcp.Rag.Tools;
 [McpServerToolType]
 public static class CheckChangesTool
 {
-    static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-
     [McpServerTool(Name = "check_changes", ReadOnly = true, Destructive = false, Idempotent = true),
      Description(
         "Internal tool for host application. Compares source files on disk against " +
@@ -112,7 +110,7 @@ public static class CheckChangesTool
                        && deletedFiles.Count == 0 && !isPromptStale,
         };
 
-        return JsonSerializer.Serialize(result, JsonOptions);
+        return JsonSerializer.Serialize(result, McpJson.Indented);
     }
 
     /// <summary>Collects all supported files from the given source paths.</summary>

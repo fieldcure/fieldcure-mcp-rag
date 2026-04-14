@@ -1,6 +1,5 @@
 ﻿using System.ComponentModel;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using FieldCure.Mcp.Rag.Models;
 using ModelContextProtocol.Server;
 
@@ -9,12 +8,6 @@ namespace FieldCure.Mcp.Rag.Tools;
 [McpServerToolType]
 public static class SearchDocumentsTool
 {
-    static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
-    };
-
     [McpServerTool(Name = "search_documents", ReadOnly = true, Destructive = false, Idempotent = true), Description(
         "Searches documents in a knowledge base using hybrid BM25 keyword + vector semantic search. " +
         "Returns ranked results with source file and content preview.")]
@@ -52,6 +45,6 @@ public static class SearchDocumentsTool
             total_chunks_searched = hybrid.TotalChunksSearched,
         };
 
-        return JsonSerializer.Serialize(response, JsonOptions);
+        return JsonSerializer.Serialize(response, McpJson.Search);
     }
 }

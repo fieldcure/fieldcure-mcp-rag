@@ -1,5 +1,4 @@
 ﻿using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace FieldCure.Mcp.Rag.Configuration;
 
@@ -9,13 +8,6 @@ namespace FieldCure.Mcp.Rag.Configuration;
 /// </summary>
 public sealed class RagConfig
 {
-    static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    };
-
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public string Created { get; set; } = "";
@@ -35,7 +27,7 @@ public sealed class RagConfig
             throw new FileNotFoundException($"config.json not found in {kbPath}");
 
         var json = File.ReadAllText(configPath);
-        return JsonSerializer.Deserialize<RagConfig>(json, JsonOptions)
+        return JsonSerializer.Deserialize<RagConfig>(json, McpJson.Config)
                ?? throw new InvalidOperationException("Failed to deserialize config.json");
     }
 
@@ -43,7 +35,7 @@ public sealed class RagConfig
     public void Save(string kbPath)
     {
         var configPath = Path.Combine(kbPath, "config.json");
-        var json = JsonSerializer.Serialize(this, JsonOptions);
+        var json = JsonSerializer.Serialize(this, McpJson.Config);
         File.WriteAllText(configPath, json);
     }
 }
