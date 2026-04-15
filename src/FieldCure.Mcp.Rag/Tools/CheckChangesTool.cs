@@ -18,7 +18,12 @@ public static class CheckChangesTool
      Description(
         "Internal tool for host application. Compares source files on disk against " +
         "the index to detect added, modified, and deleted files. " +
-        "Does not modify the index. Do not call unless explicitly requested by the user.")]
+        "Does not modify the index. Do not call unless explicitly requested by the user. " +
+        "Also detects DB schema staleness — if the KB was indexed with an older " +
+        "schema version, is_schema_stale will be true and re-indexing will trigger " +
+        "automatic migration through the exec path. The KB still serves search " +
+        "queries correctly while stale; only new features (e.g., per-chunk status " +
+        "tracking) are inactive until migration.")]
     public static async Task<string> CheckChanges(
         MultiKbContext context,
         [Description("Knowledge base ID")]
@@ -94,6 +99,11 @@ public static class CheckChangesTool
         var storedPrompt = await store.GetMetadataAsync(ChunkContextualizerHelper.MetaKeySystemPrompt);
         var isPromptStale = storedHash2 is not null && storedHash2 != defaultHash && storedPrompt is null;
 
+        // 6. Schema staleness check — read user_version from the already-open store.
+        var kbSchemaVersion = store.GetUserVersion();
+        var currentSchemaVersion = Storage.SqliteVectorStore.TargetUserVersion;
+        var isSchemaStale = kbSchemaVersion < currentSchemaVersion;
+
         var result = new
         {
             kb_id,
@@ -106,8 +116,11 @@ public static class CheckChangesTool
             deleted_files = deletedFiles,
             failed_files = failedFiles,
             is_prompt_stale = isPromptStale,
+            is_schema_stale = isSchemaStale,
+            kb_schema_version = kbSchemaVersion,
+            current_schema_version = currentSchemaVersion,
             is_clean = addedFiles.Count == 0 && modifiedFiles.Count == 0
-                       && deletedFiles.Count == 0 && !isPromptStale,
+                       && deletedFiles.Count == 0 && !isPromptStale && !isSchemaStale,
         };
 
         return JsonSerializer.Serialize(result, McpJson.Indented);
