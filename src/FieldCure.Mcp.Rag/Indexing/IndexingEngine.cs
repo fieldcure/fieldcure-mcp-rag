@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -162,9 +163,11 @@ public sealed class IndexingEngine
                     {
                         text = await ParseDocumentAsync(filePath);
                     }
-                    catch (OperationCanceledException) { throw; }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
                     catch (Exception ex)
                     {
+                        // HttpClient timeouts during OCR or any other failure: treat as extract failure.
+                        // The `when` clause above ensures real user cancellation still propagates.
                         throw new FileExtractionException(filePath, ex.Message, ex);
                     }
 
@@ -190,34 +193,12 @@ public sealed class IndexingEngine
                     if (anyContextualizationFailed && providerHealth == ProviderHealth.Ok)
                         providerHealth = ProviderHealth.ContextualizerUnavailable;
 
-                    // === Stage 4: Embed (batch) ===
-                    float[][] embeddings;
-                    try
-                    {
-                        _store.UpdateProgress(fileIndex, files.Count, "embedding",
-                            failed, providerHealth);
-
-                        var textsToEmbed = enrichResults.Select(r => r.Text).ToArray();
-                        embeddings = await _embeddingProvider.EmbedBatchAsync(textsToEmbed, cancellationToken);
-                    }
-                    catch (OperationCanceledException) { throw; }
-                    catch (HttpRequestException httpEx)
-                    {
-                        // Embedding API returned a non-success status (or transport failed).
-                        // Preserve the status code so the caller can classify the failure
-                        // (401/403 abort vs 429/5xx retry vs 400 needs caller intervention).
-                        throw new EmbeddingException(
-                            filePath, httpEx.Message, httpEx, statusCode: httpEx.StatusCode);
-                    }
-                    catch (Exception ex)
-                    {
-                        throw new EmbeddingException(filePath, ex.Message, ex);
-                    }
-
-                    // === Stage 5: Persist (atomic) ===
+                    // === Build chunks/infos for Commit 1 ===
+                    // From this point on, OCR + chunking + contextualization results
+                    // will be persisted to disk BEFORE the embed stage runs, so that
+                    // any failure from Stage 4 onward leaves the expensive upstream
+                    // work safely on disk for the second pass to resume from.
                     var rawCount = enrichResults.Count(r => !r.IsContextualized);
-                    var fileStatus = rawCount > 0 ? FileIndexStatus.Degraded : FileIndexStatus.Ready;
-
                     var pathHash = ComputeStringHash(storagePath);
                     var docChunks = new DocumentChunk[chunks.Count];
                     var chunkInfos = new ChunkWriteInfo[chunks.Count];
@@ -234,25 +215,71 @@ public sealed class IndexingEngine
                         chunkInfos[i] = new ChunkWriteInfo
                         {
                             EnrichedText = enrichResults[i].Text,
-                            Status = ChunkIndexStatus.Indexed,
+                            // Commit 1 persists every chunk as PendingEmbedding; Commit 2a
+                            // promotes to Indexed after EmbedBatchAsync succeeds.
+                            Status = ChunkIndexStatus.PendingEmbedding,
                             IsContextualized = enrichResults[i].IsContextualized,
                             LastError = enrichResults[i].FailureReason,
                         };
                     }
 
-                    var fileInfo = new FileWriteInfo
+                    var pendingFileInfo = new FileWriteInfo
                     {
                         FileHash = hash,
-                        Status = fileStatus,
+                        Status = FileIndexStatus.PartiallyDeferred,
                         ChunksRaw = rawCount,
-                        ChunksPending = 0,
+                        ChunksPending = chunks.Count,
                     };
 
-                    await _store.ReplaceFileChunksAsync(
-                        storagePath, docChunks, embeddings, _embeddingProvider.ModelId,
-                        chunkInfos, fileInfo);
+                    // === Pre-commit cancellation guard ===
+                    // If the user pressed Stop during the long OCR or LLM stages,
+                    // catch it here BEFORE persisting. Without this, a cancel that
+                    // arrived mid-Stage-1 but was not observed in time would still
+                    // flow through to Commit 1 and write chunks the user intended
+                    // to discard. Real user cancel re-throws and abort the run.
+                    cancellationToken.ThrowIfCancellationRequested();
 
-                    if (fileStatus == FileIndexStatus.Degraded) degraded++;
+                    // === Commit 1: Persist staged chunks (PendingEmbedding) ===
+                    await _store.PersistChunksAsPendingAsync(
+                        storagePath, docChunks, chunkInfos, pendingFileInfo, cancellationToken);
+
+                    // === Stage 4: Embed (batch) ===
+                    // Commit 1 has already saved the expensive upstream work. Any
+                    // failure here leaves the chunks as PendingEmbedding for the
+                    // deferred retry second pass to handle.
+                    float[][] embeddings;
+                    try
+                    {
+                        _store.UpdateProgress(fileIndex, files.Count, "embedding",
+                            failed, providerHealth);
+
+                        var textsToEmbed = enrichResults.Select(r => r.Text).ToArray();
+                        embeddings = await _embeddingProvider.EmbedBatchAsync(textsToEmbed, cancellationToken);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                    catch (HttpRequestException httpEx)
+                    {
+                        throw new EmbeddingException(
+                            filePath, httpEx.Message, httpEx, statusCode: httpEx.StatusCode);
+                    }
+                    catch (Exception ex)
+                    {
+                        throw new EmbeddingException(filePath, ex.Message, ex);
+                    }
+
+                    // === Commit 2a: Promote chunks to Indexed ===
+                    var chunkIds = docChunks.Select(c => c.Id).ToArray();
+                    var finalStatus = rawCount > 0 ? FileIndexStatus.Degraded : FileIndexStatus.Ready;
+                    await _store.PromoteChunksToIndexedAsync(
+                        storagePath,
+                        chunkIds,
+                        embeddings,
+                        _embeddingProvider.ModelId,
+                        fileStatus: finalStatus,
+                        chunksPending: 0,
+                        ct: cancellationToken);
+
+                    if (finalStatus == FileIndexStatus.Degraded) degraded++;
                     indexed++;
                     totalChunks += chunks.Count;
 
@@ -262,7 +289,7 @@ public sealed class IndexingEngine
                     _logger.LogInformation("{Line}", line);
                     logWriter.WriteLine(line);
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
                     throw;
                 }
@@ -291,14 +318,35 @@ public sealed class IndexingEngine
                 }
                 catch (EmbeddingException ex)
                 {
-                    // Stage 4 failure — preserve existing chunks, mark as deferred
-                    await _store.MarkFileAsFailedAsync(
-                        storagePath, FileIndexStatus.PartiallyDeferred, ex.Message, "embed");
+                    // Stage 4 failure. In the 2-commit model, Commit 1 has already
+                    // persisted the chunks as PendingEmbedding and file_index as
+                    // PartiallyDeferred. We do NOT call MarkFileAsFailedAsync here —
+                    // that would redundantly UPDATE the same row we just wrote.
                     partiallyDeferred++;
-                    providerHealth = ProviderHealth.EmbeddingUnavailable;
-                    _logger.LogWarning(ex,
-                        "[Indexing] Embedding failed for {File}, deferred to next cycle", storagePath);
-                    logWriter.WriteLine($"[DEFERRED:embed] {storagePath} — {ex.Message}");
+
+                    if (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                    {
+                        // Authentication / authorization failure is not transient —
+                        // flag the provider as unavailable so subsequent files in
+                        // this run skip Stage 4 and rely on the second pass for
+                        // eventual recovery once the user fixes their credentials.
+                        providerHealth = ProviderHealth.EmbeddingUnavailable;
+                        _logger.LogError(ex,
+                            "[Indexing] Embedding provider auth failed ({StatusCode}) for {File}. " +
+                            "Commit 1 state preserved, deferred retry will resume after credentials fixed.",
+                            ex.StatusCode, storagePath);
+                    }
+                    else
+                    {
+                        _logger.LogWarning(ex,
+                            "[Indexing] Embedding failed for {File} (status={StatusCode}), " +
+                            "chunks preserved as PendingEmbedding for deferred retry",
+                            storagePath, ex.StatusCode?.ToString() ?? "transport");
+                    }
+
+                    logWriter.WriteLine(
+                        $"[DEFERRED:embed] {storagePath} — " +
+                        $"{ex.StatusCode?.ToString() ?? "transport"}: {ex.Message}");
                 }
                 catch (Exception ex)
                 {
