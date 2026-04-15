@@ -44,7 +44,7 @@ public sealed class OpenAiCompatibleEmbeddingProvider : IEmbeddingProvider
         var request = new { model = _model, input = text };
         var response = await _http.PostAsJsonAsync(
             $"{_baseUrl}/v1/embeddings", request, ct);
-        response.EnsureSuccessStatusCode();
+        await ThrowIfNotSuccessAsync(response, ct);
 
         var body = await response.Content.ReadFromJsonAsync<EmbeddingResponse>(ct)
                    ?? throw new InvalidOperationException("Empty embedding response.");
@@ -64,7 +64,7 @@ public sealed class OpenAiCompatibleEmbeddingProvider : IEmbeddingProvider
         var request = new { model = _model, input = texts };
         var response = await _http.PostAsJsonAsync(
             $"{_baseUrl}/v1/embeddings", request, ct);
-        response.EnsureSuccessStatusCode();
+        await ThrowIfNotSuccessAsync(response, ct);
 
         var body = await response.Content.ReadFromJsonAsync<EmbeddingResponse>(ct)
                    ?? throw new InvalidOperationException("Empty embedding response.");
@@ -78,6 +78,41 @@ public sealed class OpenAiCompatibleEmbeddingProvider : IEmbeddingProvider
             _dimension = results[0].Length;
 
         return results;
+    }
+
+    /// <summary>
+    /// Replacement for <c>EnsureSuccessStatusCode()</c> that reads the response body
+    /// and includes it in the thrown exception. OpenAI-compatible APIs return the
+    /// actual error reason (token limit, invalid model, etc.) only in the body, so
+    /// the default HttpClient behaviour of discarding it makes diagnostics
+    /// impossible. Throws <see cref="HttpRequestException"/> with the body in the
+    /// message and the original <see cref="System.Net.HttpStatusCode"/> attached so
+    /// the caller can classify the failure (e.g., 401/403 abort vs 5xx retry).
+    /// </summary>
+    static async Task ThrowIfNotSuccessAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        if (response.IsSuccessStatusCode) return;
+
+        string body;
+        try
+        {
+            body = await response.Content.ReadAsStringAsync(ct);
+        }
+        catch (Exception readEx)
+        {
+            body = $"<failed to read response body: {readEx.GetType().Name}: {readEx.Message}>";
+        }
+
+        // Truncate excessively long bodies (some providers echo back the full request
+        // payload on 400). 2 KB is plenty for any structured error response.
+        const int MaxBodyChars = 2048;
+        if (body.Length > MaxBodyChars)
+            body = body[..MaxBodyChars] + $"… [truncated, full length {body.Length}]";
+
+        throw new HttpRequestException(
+            $"Embedding API returned {(int)response.StatusCode} {response.StatusCode}: {body}",
+            inner: null,
+            statusCode: response.StatusCode);
     }
 
     record EmbeddingResponse(List<EmbeddingData> Data);

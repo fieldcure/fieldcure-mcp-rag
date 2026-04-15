@@ -201,6 +201,14 @@ public sealed class IndexingEngine
                         embeddings = await _embeddingProvider.EmbedBatchAsync(textsToEmbed, cancellationToken);
                     }
                     catch (OperationCanceledException) { throw; }
+                    catch (HttpRequestException httpEx)
+                    {
+                        // Embedding API returned a non-success status (or transport failed).
+                        // Preserve the status code so the caller can classify the failure
+                        // (401/403 abort vs 429/5xx retry vs 400 needs caller intervention).
+                        throw new EmbeddingException(
+                            filePath, httpEx.Message, httpEx, statusCode: httpEx.StatusCode);
+                    }
                     catch (Exception ex)
                     {
                         throw new EmbeddingException(filePath, ex.Message, ex);
