@@ -43,7 +43,6 @@ async Task<int> RunServeAsync(string[] args)
     if (basePath is null) return PrintUsage();
 
     var credentials = new CredentialService();
-    var multiContext = new MultiKbContext(basePath, credentials, CreateEmbeddingProvider);
 
     var builder = Host.CreateApplicationBuilder(Array.Empty<string>());
 
@@ -53,8 +52,15 @@ async Task<int> RunServeAsync(string[] args)
         options.LogToStandardErrorThreshold = LogLevel.Trace;
     });
 
+    // MultiKbContext is built via the DI container so it receives
+    // ILogger<MultiKbContext> from the host's logging pipeline.
+    // The host disposes singletons on shutdown, so no explicit Dispose is needed.
     builder.Services
-        .AddSingleton(multiContext)
+        .AddSingleton(sp => new MultiKbContext(
+            basePath,
+            credentials,
+            CreateEmbeddingProvider,
+            sp.GetRequiredService<ILogger<MultiKbContext>>()))
         .AddMcpServer(options =>
         {
             options.ServerInfo = new()
@@ -73,7 +79,6 @@ async Task<int> RunServeAsync(string[] args)
     var app = builder.Build();
     await app.RunAsync();
 
-    multiContext.Dispose();
     return 0;
 }
 
