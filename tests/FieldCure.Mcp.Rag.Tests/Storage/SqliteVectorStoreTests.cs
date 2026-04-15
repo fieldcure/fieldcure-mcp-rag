@@ -1212,4 +1212,393 @@ public class SqliteVectorStoreTests
     }
 
     #endregion
+
+    #region v1.4.2 Task 1 — PersistChunksAsPendingAsync (Commit 1)
+
+    static DocumentChunk Chunk(string id, string sourcePath, int index, string content) =>
+        new()
+        {
+            Id = id,
+            SourcePath = sourcePath,
+            ChunkIndex = index,
+            Content = content,
+            CharOffset = 0,
+            Metadata = "{}",
+        };
+
+    static ChunkWriteInfo PendingInfo(string enriched) =>
+        new()
+        {
+            EnrichedText = enriched,
+            Status = ChunkIndexStatus.PendingEmbedding,
+            IsContextualized = true,
+        };
+
+    static FileWriteInfo PendingFileInfo(string hash, int pending) =>
+        new()
+        {
+            FileHash = hash,
+            Status = FileIndexStatus.PartiallyDeferred,
+            ChunksRaw = 0,
+            ChunksPending = pending,
+        };
+
+    [TestMethod]
+    public async Task PersistChunksAsPending_WritesChunksWithPendingStatus()
+    {
+        var dbPath = CreateTempDb();
+        using var store = new SqliteVectorStore(dbPath);
+
+        var chunks = new[]
+        {
+            Chunk("p_0", "big.pdf", 0, "page one"),
+            Chunk("p_1", "big.pdf", 1, "page two"),
+            Chunk("p_2", "big.pdf", 2, "page three"),
+        };
+        var infos = new[]
+        {
+            PendingInfo("page one enriched"),
+            PendingInfo("page two enriched"),
+            PendingInfo("page three enriched"),
+        };
+
+        await store.PersistChunksAsPendingAsync(
+            "big.pdf", chunks, infos, PendingFileInfo("hash1", 3));
+
+        // All three chunks present with PendingEmbedding status.
+        var connStr = new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString();
+        using var conn = new SqliteConnection(connStr);
+        conn.Open();
+
+        using var chunkCmd = conn.CreateCommand();
+        chunkCmd.CommandText = "SELECT id, status, retry_count, enriched FROM chunks WHERE source_path = 'big.pdf' ORDER BY chunk_index";
+        using var reader = chunkCmd.ExecuteReader();
+        var count = 0;
+        while (reader.Read())
+        {
+            Assert.AreEqual($"p_{count}", reader.GetString(0));
+            Assert.AreEqual((int)ChunkIndexStatus.PendingEmbedding, reader.GetInt32(1));
+            Assert.AreEqual(0, reader.GetInt32(2));
+            Assert.AreEqual($"page {new[] { "one", "two", "three" }[count]} enriched", reader.GetString(3));
+            count++;
+        }
+        reader.Close();
+        Assert.AreEqual(3, count);
+    }
+
+    [TestMethod]
+    public async Task PersistChunksAsPending_DoesNotWriteEmbeddings()
+    {
+        var dbPath = CreateTempDb();
+        using var store = new SqliteVectorStore(dbPath);
+
+        var chunks = new[] { Chunk("ne_0", "doc.txt", 0, "hello") };
+        var infos = new[] { PendingInfo("hello enriched") };
+        await store.PersistChunksAsPendingAsync(
+            "doc.txt", chunks, infos, PendingFileInfo("h1", 1));
+
+        var connStr = new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString();
+        using var conn = new SqliteConnection(connStr);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM embeddings WHERE chunk_id = 'ne_0'";
+        Assert.AreEqual(0L, cmd.ExecuteScalar());
+    }
+
+    [TestMethod]
+    public async Task PersistChunksAsPending_PopulatesFtsForBm25()
+    {
+        // Pending chunks must remain searchable via BM25 — per v1.4.2 Decision G
+        // (degraded mode allowed). Vector search naturally skips them because no
+        // embeddings row exists, but keyword search should still find them.
+        var dbPath = CreateTempDb();
+        using var store = new SqliteVectorStore(dbPath);
+
+        var chunks = new[] { Chunk("fts_0", "doc.md", 0, "quantum electrodynamics textbook") };
+        var infos = new[] { PendingInfo("quantum electrodynamics textbook enriched") };
+        await store.PersistChunksAsPendingAsync(
+            "doc.md", chunks, infos, PendingFileInfo("h1", 1));
+
+        var ftsResults = await store.SearchFtsAsync("electrodynamics", topK: 5);
+        Assert.AreEqual(1, ftsResults.Count, "FTS should find the pending chunk.");
+        Assert.AreEqual("fts_0", ftsResults[0].ChunkId);
+    }
+
+    [TestMethod]
+    public async Task PersistChunksAsPending_UpsertsFileIndexAsPartiallyDeferred()
+    {
+        var dbPath = CreateTempDb();
+        using var store = new SqliteVectorStore(dbPath);
+
+        var chunks = new[] { Chunk("fi_0", "report.docx", 0, "body") };
+        var infos = new[] { PendingInfo("body enriched") };
+        await store.PersistChunksAsPendingAsync(
+            "report.docx", chunks, infos, PendingFileInfo("hash_abc", 1));
+
+        var connStr = new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString();
+        using var conn = new SqliteConnection(connStr);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT file_hash, status, chunks_pending
+            FROM file_index WHERE source_path = 'report.docx'
+            """;
+        using var reader = cmd.ExecuteReader();
+        Assert.IsTrue(reader.Read());
+        Assert.AreEqual("hash_abc", reader.GetString(0));
+        Assert.AreEqual((int)FileIndexStatus.PartiallyDeferred, reader.GetInt32(1));
+        Assert.AreEqual(1, reader.GetInt32(2));
+    }
+
+    [TestMethod]
+    public async Task PersistChunksAsPending_ReplacesExistingChunks()
+    {
+        // A second call for the same source path must delete the old chunks
+        // (via DeleteBySourcePathAsync inside the transaction) and insert the
+        // new ones. This is the "file was modified, re-extract" path.
+        var dbPath = CreateTempDb();
+        using var store = new SqliteVectorStore(dbPath);
+
+        var v1Chunks = new[] { Chunk("r_0", "same.pdf", 0, "v1 content") };
+        var v1Infos = new[] { PendingInfo("v1 content enriched") };
+        await store.PersistChunksAsPendingAsync("same.pdf", v1Chunks, v1Infos, PendingFileInfo("hash_v1", 1));
+
+        // Replace with two new chunks (different ids).
+        var v2Chunks = new[]
+        {
+            Chunk("r_new_0", "same.pdf", 0, "v2 part one"),
+            Chunk("r_new_1", "same.pdf", 1, "v2 part two"),
+        };
+        var v2Infos = new[]
+        {
+            PendingInfo("v2 part one enriched"),
+            PendingInfo("v2 part two enriched"),
+        };
+        await store.PersistChunksAsPendingAsync("same.pdf", v2Chunks, v2Infos, PendingFileInfo("hash_v2", 2));
+
+        // Old chunk must be gone, new chunks must be present.
+        Assert.IsNull(await store.GetChunkAsync("r_0"));
+        Assert.IsNotNull(await store.GetChunkAsync("r_new_0"));
+        Assert.IsNotNull(await store.GetChunkAsync("r_new_1"));
+
+        // file_index should reflect the new hash and pending count.
+        var connStr = new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString();
+        using var conn = new SqliteConnection(connStr);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT file_hash, chunks_pending FROM file_index WHERE source_path = 'same.pdf'";
+        using var reader = cmd.ExecuteReader();
+        Assert.IsTrue(reader.Read());
+        Assert.AreEqual("hash_v2", reader.GetString(0));
+        Assert.AreEqual(2, reader.GetInt32(1));
+    }
+
+    [TestMethod]
+    public async Task PersistChunksAsPending_EmptyChunks_IsNoOp()
+    {
+        var dbPath = CreateTempDb();
+        using var store = new SqliteVectorStore(dbPath);
+
+        // Must not throw, must not create a file_index row.
+        await store.PersistChunksAsPendingAsync(
+            "empty.txt",
+            Array.Empty<DocumentChunk>(),
+            Array.Empty<ChunkWriteInfo>(),
+            PendingFileInfo("h", 0));
+
+        var connStr = new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString();
+        using var conn = new SqliteConnection(connStr);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM file_index WHERE source_path = 'empty.txt'";
+        Assert.AreEqual(0L, cmd.ExecuteScalar());
+    }
+
+    [TestMethod]
+    public async Task PersistChunksAsPending_MismatchedCounts_Throws()
+    {
+        using var store = new SqliteVectorStore(CreateTempDb());
+
+        var chunks = new[] { Chunk("x_0", "doc.txt", 0, "a"), Chunk("x_1", "doc.txt", 1, "b") };
+        var infos = new[] { PendingInfo("a") };   // count mismatch
+
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
+            store.PersistChunksAsPendingAsync("doc.txt", chunks, infos, PendingFileInfo("h", 2)));
+    }
+
+    #endregion
+
+    #region v1.4.2 Task 2 — PromoteChunksToIndexedAsync (Commit 2a)
+
+    [TestMethod]
+    public async Task PromoteChunksToIndexed_TransitionsStatusAndInsertsEmbeddings()
+    {
+        var dbPath = CreateTempDb();
+        using var store = new SqliteVectorStore(dbPath);
+
+        // Seed via Commit 1.
+        var chunks = new[]
+        {
+            Chunk("pr_0", "doc.txt", 0, "alpha"),
+            Chunk("pr_1", "doc.txt", 1, "beta"),
+        };
+        var infos = new[] { PendingInfo("alpha"), PendingInfo("beta") };
+        await store.PersistChunksAsPendingAsync("doc.txt", chunks, infos, PendingFileInfo("h1", 2));
+
+        // Promote via Commit 2a.
+        var embeddings = new[] { new float[] { 1f, 0f }, new float[] { 0f, 1f } };
+        await store.PromoteChunksToIndexedAsync(
+            "doc.txt",
+            chunkIds: new[] { "pr_0", "pr_1" },
+            embeddings: embeddings,
+            modelId: "test-model");
+
+        // chunks.status becomes Indexed, retry_count stays 0, last_error cleared.
+        var connStr = new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString();
+        using var conn = new SqliteConnection(connStr);
+        conn.Open();
+        using var chunkCmd = conn.CreateCommand();
+        chunkCmd.CommandText = """
+            SELECT id, status, retry_count, last_error
+            FROM chunks WHERE source_path = 'doc.txt' ORDER BY chunk_index
+            """;
+        using var chunkReader = chunkCmd.ExecuteReader();
+        var seen = 0;
+        while (chunkReader.Read())
+        {
+            Assert.AreEqual($"pr_{seen}", chunkReader.GetString(0));
+            Assert.AreEqual((int)ChunkIndexStatus.Indexed, chunkReader.GetInt32(1));
+            Assert.AreEqual(0, chunkReader.GetInt32(2));
+            Assert.IsTrue(chunkReader.IsDBNull(3));
+            seen++;
+        }
+        chunkReader.Close();
+        Assert.AreEqual(2, seen);
+
+        // embeddings table now has rows for both chunks.
+        using var embCmd = conn.CreateCommand();
+        embCmd.CommandText = "SELECT COUNT(*) FROM embeddings WHERE chunk_id IN ('pr_0','pr_1')";
+        Assert.AreEqual(2L, embCmd.ExecuteScalar());
+
+        // file_index status → Ready.
+        using var fileCmd = conn.CreateCommand();
+        fileCmd.CommandText = "SELECT status, chunks_pending FROM file_index WHERE source_path = 'doc.txt'";
+        using var fileReader = fileCmd.ExecuteReader();
+        Assert.IsTrue(fileReader.Read());
+        Assert.AreEqual((int)FileIndexStatus.Ready, fileReader.GetInt32(0));
+        Assert.AreEqual(0, fileReader.GetInt32(1));
+    }
+
+    [TestMethod]
+    public async Task PromoteChunksToIndexed_PartialPromotion_LeavesRemainingPending()
+    {
+        // Simulate batch splitting landing in v1.4.3: half the chunks promoted,
+        // half remain PendingEmbedding. file_index should reflect Degraded or
+        // PartiallyDeferred and chunks_pending should be the remaining count.
+        var dbPath = CreateTempDb();
+        using var store = new SqliteVectorStore(dbPath);
+
+        var chunks = new[]
+        {
+            Chunk("pp_0", "big.pdf", 0, "A"),
+            Chunk("pp_1", "big.pdf", 1, "B"),
+            Chunk("pp_2", "big.pdf", 2, "C"),
+            Chunk("pp_3", "big.pdf", 3, "D"),
+        };
+        var infos = new[]
+        {
+            PendingInfo("A"), PendingInfo("B"), PendingInfo("C"), PendingInfo("D"),
+        };
+        await store.PersistChunksAsPendingAsync("big.pdf", chunks, infos, PendingFileInfo("big_h", 4));
+
+        // Promote only the first two chunks.
+        await store.PromoteChunksToIndexedAsync(
+            "big.pdf",
+            chunkIds: new[] { "pp_0", "pp_1" },
+            embeddings: new[] { new float[] { 1f, 0f }, new float[] { 0f, 1f } },
+            modelId: "m",
+            fileStatus: FileIndexStatus.PartiallyDeferred,
+            chunksPending: 2);
+
+        var connStr = new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString();
+        using var conn = new SqliteConnection(connStr);
+        conn.Open();
+
+        // First two chunks are Indexed, last two stay PendingEmbedding.
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT status FROM chunks WHERE source_path = 'big.pdf' ORDER BY chunk_index";
+        using var reader = cmd.ExecuteReader();
+        var statuses = new List<int>();
+        while (reader.Read()) statuses.Add(reader.GetInt32(0));
+        reader.Close();
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                (int)ChunkIndexStatus.Indexed,
+                (int)ChunkIndexStatus.Indexed,
+                (int)ChunkIndexStatus.PendingEmbedding,
+                (int)ChunkIndexStatus.PendingEmbedding,
+            },
+            statuses);
+
+        // file_index: status = PartiallyDeferred, chunks_pending = 2.
+        using var fileCmd = conn.CreateCommand();
+        fileCmd.CommandText = "SELECT status, chunks_pending FROM file_index WHERE source_path = 'big.pdf'";
+        using var fileReader = fileCmd.ExecuteReader();
+        Assert.IsTrue(fileReader.Read());
+        Assert.AreEqual((int)FileIndexStatus.PartiallyDeferred, fileReader.GetInt32(0));
+        Assert.AreEqual(2, fileReader.GetInt32(1));
+    }
+
+    [TestMethod]
+    public async Task PromoteChunksToIndexed_EmptyList_IsNoOp()
+    {
+        using var store = new SqliteVectorStore(CreateTempDb());
+        await store.PromoteChunksToIndexedAsync(
+            "nothing.txt", Array.Empty<string>(), Array.Empty<float[]>(), "m");
+        // No exception, no file_index row created.
+    }
+
+    [TestMethod]
+    public async Task PromoteChunksToIndexed_MismatchedCounts_Throws()
+    {
+        using var store = new SqliteVectorStore(CreateTempDb());
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
+            store.PromoteChunksToIndexedAsync(
+                "x.txt",
+                chunkIds: new[] { "a", "b" },
+                embeddings: new[] { new float[] { 1f } },   // mismatch
+                modelId: "m"));
+    }
+
+    [TestMethod]
+    public async Task PersistThenPromote_VectorSearchFindsPromotedChunks()
+    {
+        // End-to-end invariant: PendingEmbedding chunks are invisible to vector
+        // search; after promotion they become findable.
+        var dbPath = CreateTempDb();
+        using var store = new SqliteVectorStore(dbPath);
+
+        var chunks = new[] { Chunk("vs_0", "doc.txt", 0, "searchable") };
+        var infos = new[] { PendingInfo("searchable") };
+        await store.PersistChunksAsPendingAsync("doc.txt", chunks, infos, PendingFileInfo("h", 1));
+
+        // Before promotion: vector search returns nothing (no embeddings row).
+        var before = await store.SearchAsync(new float[] { 1f, 0f }, topK: 5, threshold: 0f);
+        Assert.AreEqual(0, before.Count);
+
+        // Promote.
+        await store.PromoteChunksToIndexedAsync(
+            "doc.txt",
+            chunkIds: new[] { "vs_0" },
+            embeddings: new[] { new float[] { 1f, 0f } },
+            modelId: "m");
+
+        // After promotion: vector search finds the chunk.
+        var after = await store.SearchAsync(new float[] { 1f, 0f }, topK: 5, threshold: 0f);
+        Assert.AreEqual(1, after.Count);
+        Assert.AreEqual("vs_0", after[0].ChunkId);
+    }
+
+    #endregion
 }

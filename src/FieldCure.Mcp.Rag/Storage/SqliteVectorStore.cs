@@ -231,9 +231,15 @@ public sealed class SqliteVectorStore : IDisposable
         await UpsertChunkAsync(conn, null, chunk, embedding, modelId, info);
     }
 
+    /// <summary>
+    /// Inserts (or replaces) a chunk row, optionally its embedding row, and its FTS row.
+    /// When <paramref name="embedding"/> is <c>null</c>, the embeddings table is left
+    /// untouched — used by <see cref="PersistChunksAsPendingAsync"/> for the
+    /// 2-commit model where chunks are persisted before embedding.
+    /// </summary>
     async Task UpsertChunkAsync(
         SqliteConnection conn, SqliteTransaction? tx,
-        DocumentChunk chunk, float[] embedding, string modelId,
+        DocumentChunk chunk, float[]? embedding, string modelId,
         ChunkWriteInfo? info = null)
     {
         var enriched = info?.EnrichedText ?? chunk.Content;
@@ -263,19 +269,25 @@ public sealed class SqliteVectorStore : IDisposable
         chunkCmd.Parameters.AddWithValue("@last_error", (object?)lastError ?? DBNull.Value);
         await chunkCmd.ExecuteNonQueryAsync();
 
-        await using var embCmd = conn.CreateCommand();
-        embCmd.Transaction = tx;
-        embCmd.CommandText = """
-            INSERT OR REPLACE INTO embeddings (chunk_id, model, embedding)
-            VALUES (@chunk_id, @model, @embedding)
-            """;
-        embCmd.Parameters.AddWithValue("@chunk_id", chunk.Id);
-        embCmd.Parameters.AddWithValue("@model", modelId);
-        embCmd.Parameters.AddWithValue("@embedding", SerializeVector(embedding));
-        await embCmd.ExecuteNonQueryAsync();
+        if (embedding is not null)
+        {
+            await using var embCmd = conn.CreateCommand();
+            embCmd.Transaction = tx;
+            embCmd.CommandText = """
+                INSERT OR REPLACE INTO embeddings (chunk_id, model, embedding)
+                VALUES (@chunk_id, @model, @embedding)
+                """;
+            embCmd.Parameters.AddWithValue("@chunk_id", chunk.Id);
+            embCmd.Parameters.AddWithValue("@model", modelId);
+            embCmd.Parameters.AddWithValue("@embedding", SerializeVector(embedding));
+            await embCmd.ExecuteNonQueryAsync();
+        }
 
         // FTS5 sync: delete-then-insert (virtual tables don't support REPLACE)
-        // Index enriched text for improved search
+        // Index enriched text for improved search. We insert the FTS row even for
+        // PendingEmbedding chunks so that BM25 keyword search works on them
+        // immediately — vector search will skip them naturally because no
+        // embeddings row exists yet.
         await using var ftsDelCmd = conn.CreateCommand();
         ftsDelCmd.Transaction = tx;
         ftsDelCmd.CommandText = "DELETE FROM chunks_fts WHERE chunk_id = @id";
@@ -369,6 +381,192 @@ public sealed class SqliteVectorStore : IDisposable
         catch
         {
             await tx.RollbackAsync();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Commit 1 of the v1.4.2 2-commit model: persists chunks and file_index BEFORE
+    /// embedding, so that expensive upstream results (OCR, chunking, contextualization)
+    /// survive any failure during the embed stage. Atomic — DELETE old, INSERT new
+    /// chunks, INSERT FTS rows, UPSERT file_index — all in a single transaction.
+    /// </summary>
+    /// <param name="sourcePath">Storage path of the file being indexed.</param>
+    /// <param name="chunks">Chunks to persist. Each chunk's <see cref="DocumentChunk.Id"/> must be set.</param>
+    /// <param name="chunkInfos">
+    /// Per-chunk write info. Caller is expected to set
+    /// <see cref="ChunkWriteInfo.Status"/> to <see cref="Models.ChunkIndexStatus.PendingEmbedding"/>
+    /// (or another non-Indexed status) and provide the contextualized
+    /// <see cref="ChunkWriteInfo.EnrichedText"/> that the second pass will eventually
+    /// embed without re-running upstream stages.
+    /// </param>
+    /// <param name="fileInfo">
+    /// File-level info. Caller is expected to set
+    /// <see cref="FileWriteInfo.Status"/> to <see cref="Models.FileIndexStatus.PartiallyDeferred"/>
+    /// and <see cref="FileWriteInfo.ChunksPending"/> to the chunk count.
+    /// </param>
+    /// <param name="ct">Cancellation token. Cancellation is checked before transaction begin only.</param>
+    public async Task PersistChunksAsPendingAsync(
+        string sourcePath,
+        IReadOnlyList<DocumentChunk> chunks,
+        IReadOnlyList<ChunkWriteInfo> chunkInfos,
+        FileWriteInfo fileInfo,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(sourcePath);
+        ArgumentNullException.ThrowIfNull(chunks);
+        ArgumentNullException.ThrowIfNull(chunkInfos);
+        ArgumentNullException.ThrowIfNull(fileInfo);
+
+        if (chunkInfos.Count != chunks.Count)
+            throw new ArgumentException(
+                $"chunkInfos.Count ({chunkInfos.Count}) must equal chunks.Count ({chunks.Count}).");
+
+        if (chunks.Count == 0)
+            return; // Nothing to persist; preserve existing data.
+
+        ct.ThrowIfCancellationRequested();
+
+        await using var conn = OpenConnection();
+        await using var tx = await conn.BeginTransactionAsync(ct);
+
+        try
+        {
+            await DeleteBySourcePathAsync(conn, (SqliteTransaction)tx, sourcePath);
+
+            for (var i = 0; i < chunks.Count; i++)
+            {
+                // embedding: null → UpsertChunkAsync skips the embeddings table insert
+                // but still writes the chunk row and the FTS row.
+                await UpsertChunkAsync(
+                    conn, (SqliteTransaction)tx,
+                    chunks[i], embedding: null, modelId: string.Empty, chunkInfos[i]);
+            }
+
+            await UpsertFileIndexAsync(conn, (SqliteTransaction)tx, sourcePath, fileInfo);
+
+            await tx.CommitAsync(ct);
+        }
+        catch
+        {
+            await tx.RollbackAsync(CancellationToken.None);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Commit 2a of the v1.4.2 2-commit model: promotes PendingEmbedding chunks to
+    /// Indexed and inserts their embeddings in a single transaction. Called after
+    /// successful <c>EmbedBatchAsync</c> on chunks previously persisted via
+    /// <see cref="PersistChunksAsPendingAsync"/>.
+    /// </summary>
+    /// <param name="sourcePath">Storage path of the file being promoted.</param>
+    /// <param name="chunkIds">
+    /// Chunk identifiers to promote. Order must match <paramref name="embeddings"/>.
+    /// All listed chunks should currently be in <see cref="Models.ChunkIndexStatus.PendingEmbedding"/>;
+    /// the UPDATE silently ignores chunks that no longer exist (e.g., if the file
+    /// was re-indexed concurrently — this is acceptable, the rollback path will
+    /// rebuild correctly).
+    /// </param>
+    /// <param name="embeddings">Embedding vectors, one per chunk id.</param>
+    /// <param name="modelId">Embedding model identifier stored in the embeddings table.</param>
+    /// <param name="fileStatus">
+    /// Final file status. Use <see cref="Models.FileIndexStatus.Ready"/> for a clean
+    /// run, or <see cref="Models.FileIndexStatus.Degraded"/> when some chunks lacked
+    /// contextualization but were still embedded successfully.
+    /// </param>
+    /// <param name="chunksPending">
+    /// Remaining pending chunk count (0 for full success, &gt;0 for partial promotion
+    /// — relevant once batch splitting lands in v1.4.3).
+    /// </param>
+    /// <param name="ct">Cancellation token.</param>
+    public async Task PromoteChunksToIndexedAsync(
+        string sourcePath,
+        IReadOnlyList<string> chunkIds,
+        float[][] embeddings,
+        string modelId,
+        Models.FileIndexStatus fileStatus = Models.FileIndexStatus.Ready,
+        int chunksPending = 0,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(sourcePath);
+        ArgumentNullException.ThrowIfNull(chunkIds);
+        ArgumentNullException.ThrowIfNull(embeddings);
+
+        if (embeddings.Length != chunkIds.Count)
+            throw new ArgumentException(
+                $"embeddings.Length ({embeddings.Length}) must equal chunkIds.Count ({chunkIds.Count}).");
+
+        if (chunkIds.Count == 0)
+            return;
+
+        ct.ThrowIfCancellationRequested();
+
+        await using var conn = OpenConnection();
+        await using var tx = await conn.BeginTransactionAsync(ct);
+
+        try
+        {
+            // Promote each chunk to Indexed and insert its embedding row. Both
+            // statements share parameter slots that are updated per iteration to
+            // avoid repeated command construction.
+            await using var promoteCmd = conn.CreateCommand();
+            promoteCmd.Transaction = (SqliteTransaction)tx;
+            promoteCmd.CommandText = """
+                UPDATE chunks
+                SET status = @status,
+                    retry_count = 0,
+                    last_error = NULL
+                WHERE id = @id
+                """;
+            var pStatus = promoteCmd.Parameters.Add("@status", Microsoft.Data.Sqlite.SqliteType.Integer);
+            var pId = promoteCmd.Parameters.Add("@id", Microsoft.Data.Sqlite.SqliteType.Text);
+            pStatus.Value = (int)Models.ChunkIndexStatus.Indexed;
+
+            await using var embCmd = conn.CreateCommand();
+            embCmd.Transaction = (SqliteTransaction)tx;
+            embCmd.CommandText = """
+                INSERT OR REPLACE INTO embeddings (chunk_id, model, embedding)
+                VALUES (@chunk_id, @model, @embedding)
+                """;
+            var pChunkId = embCmd.Parameters.Add("@chunk_id", Microsoft.Data.Sqlite.SqliteType.Text);
+            var pModel = embCmd.Parameters.Add("@model", Microsoft.Data.Sqlite.SqliteType.Text);
+            var pEmbedding = embCmd.Parameters.Add("@embedding", Microsoft.Data.Sqlite.SqliteType.Blob);
+            pModel.Value = modelId;
+
+            for (var i = 0; i < chunkIds.Count; i++)
+            {
+                pId.Value = chunkIds[i];
+                await promoteCmd.ExecuteNonQueryAsync(ct);
+
+                pChunkId.Value = chunkIds[i];
+                pEmbedding.Value = SerializeVector(embeddings[i]);
+                await embCmd.ExecuteNonQueryAsync(ct);
+            }
+
+            // Update file_index status atomically with the chunk promotions.
+            await using var fileCmd = conn.CreateCommand();
+            fileCmd.Transaction = (SqliteTransaction)tx;
+            fileCmd.CommandText = """
+                UPDATE file_index
+                SET status = @status,
+                    chunks_pending = @chunks_pending,
+                    indexed_at = @indexed_at,
+                    last_error = NULL,
+                    last_error_stage = NULL
+                WHERE source_path = @source_path
+                """;
+            fileCmd.Parameters.AddWithValue("@status", (int)fileStatus);
+            fileCmd.Parameters.AddWithValue("@chunks_pending", chunksPending);
+            fileCmd.Parameters.AddWithValue("@indexed_at", DateTime.UtcNow.ToString("O"));
+            fileCmd.Parameters.AddWithValue("@source_path", sourcePath);
+            await fileCmd.ExecuteNonQueryAsync(ct);
+
+            await tx.CommitAsync(ct);
+        }
+        catch
+        {
+            await tx.RollbackAsync(CancellationToken.None);
             throw;
         }
     }
