@@ -16,7 +16,7 @@ fieldcure-mcp-rag
 └── serve --base-path <path>           # Multi-KB MCP search server (stdio)
 ```
 
-- **exec** — headless indexing process. Scans source paths, chunks, contextualizes, embeds, stores.
+- **exec** — headless indexing process. Scans source paths, chunks, contextualizes, embeds, stores. Uses a 2-commit model that persists expensive upstream work (OCR, contextualization) before Stage 4 so embedding failures never lose data, plus binary-split per-chunk failure isolation and an automatic deferred retry pass. See the [main README](https://github.com/fieldcure/fieldcure-mcp-rag#how-indexing-works) for details.
 - **serve** — read-only MCP server serving all KBs under the base path. Tools accept `kb_id` parameter to target a specific KB. Lazy-loads KB instances on first access.
 
 Both modes read `config.json` from the knowledge base folder and resolve API keys from Windows PasswordVault.
@@ -85,7 +85,7 @@ All tools (except `list_knowledge_bases`) require a `kb_id` parameter.
 | `search_documents` | Hybrid BM25 + vector search with Reciprocal Rank Fusion |
 | `get_document_chunk` | Retrieve full content of a specific chunk by ID |
 | `get_index_info` | Returns index metadata (file/chunk counts, last indexed timestamp, prompt config, stale-index detection, indexing lock status). Internal — for host application use |
-| `check_changes` | Dry-run filesystem scan comparing source files against the index. Returns added/modified/deleted/failed file paths and counts. Internal — for host application use |
+| `check_changes` | Dry-run filesystem scan comparing source files against the index. Returns added/modified/deleted/failed file paths and counts, plus `is_prompt_stale` and `is_schema_stale` flags. Internal — for host application use |
 
 ## Search Modes
 

@@ -30,6 +30,7 @@ fieldcure-mcp-rag
 ### Indexing
 - Incremental indexing with SHA256 change detection
 - AI-powered chunk contextualization with bilingual keyword enrichment (see [Chunk Contextualization](#chunk-contextualization))
+- 2-commit pipeline preserves expensive upstream work across embedding failures (see [How Indexing Works](#how-indexing-works))
 - Math equation extraction from DOCX/HWPX as `[math: LaTeX]` blocks
 - PDF with OCR fallback (Tesseract eng+kor) for scanned pages
 - Cross-process indexing lock with stale PID auto-cleanup
@@ -58,6 +59,90 @@ The result is stored alongside the original chunk text:
 - **Bilingual keywords** enable cross-lingual search — a Korean query can retrieve English documents and vice versa
 
 This is enabled by setting `contextualizer` in `config.json`. It can be disabled (set provider/model to empty) if you prefer raw chunk indexing.
+
+## How Indexing Works
+
+The `exec` command runs a 5-stage pipeline per file:
+
+1. **Extract** — text from document (DOCX, PDF OCR, etc.)
+2. **Chunk** — split into ~1000 char windows
+3. **Contextualize** — LLM enrichment (optional, see [above](#chunk-contextualization))
+4. **Embed** — vector embedding via API
+5. **Persist** — save to SQLite
+
+For large files, Stage 1 alone can take 20+ minutes via OCR (e.g., a 596-page scanned PDF). To prevent expensive upstream work from being lost when later stages fail, the pipeline uses a **2-commit model**:
+
+```
+Stages 1-3 (Extract → Chunk → Contextualize)
+        ↓
+[Commit 1] chunks saved as PendingEmbedding
+        ↓
+Stage 4 (Embed)
+   ├─ success → [Commit 2a] promote chunks to Indexed
+   └─ failure → chunks remain PendingEmbedding (retry next exec)
+```
+
+**Why this matters**: A 25-minute OCR result is persisted on disk before any embedding API call. If Stage 4 fails (network error, rate limit, token limit, process crash, even power loss), the chunks survive. The next `exec` hash-skips the file (no OCR re-run) and the deferred retry pass attempts only Stage 4.
+
+### Per-Chunk Failure Isolation (Binary Split)
+
+If a single chunk in a file exceeds the embedding model's token limit (e.g., a math-dense page in a textbook), the binary split algorithm isolates that one chunk:
+
+```
+EmbedBatch([0..1249])         → 400 "input[846] too long"
+  ├─ EmbedBatch([0..624])     → OK (promote 625)
+  └─ EmbedBatch([625..1249])  → 400
+      ├─ EmbedBatch([625..937])  → 400
+      │   ... (binary search narrows toward chunk 846)
+      │   └─ EmbedBatch([846..846]) → 400 (mark chunk 846 Failed)
+      └─ EmbedBatch([938..1249]) → OK (promote 312)
+```
+
+Result: 1249 chunks indexed, only chunk 846 marked `Failed`. The file's status becomes `Degraded` — partially searchable instead of completely missing.
+
+This works without parsing provider-specific error messages and adds zero cost to the happy path (single API call when all chunks succeed). For a file with N chunks and one failure, expect roughly `2 × log₂(N)` API calls.
+
+### Deferred Retry Pass
+
+Each `exec` ends with a retry pass over any chunks left in `PendingEmbedding` state from previous runs:
+
+- Reads enriched text from DB — no OCR or contextualization re-run
+- Calls the embedding API only — typically seconds, not minutes
+- Up to 3 retries per chunk; on exhaustion, the chunk is marked `Failed`
+- Auth errors (401/403) flag the provider as unavailable and skip the rest of the pass
+
+### File States
+
+The `file_index` table tracks each file's overall state. Hash-skip behavior depends on status:
+
+| Status | Meaning | Hash-skip behavior |
+|--------|---------|-------------------|
+| `Ready` | Fully indexed | Skip if hash matches |
+| `Degraded` | Some chunks failed (binary-split isolated) | Skip if hash matches |
+| `PartiallyDeferred` | Chunks pending embedding retry | Main loop skips; deferred pass picks up |
+| `Failed` | Extraction or repeated embedding failure | Skip; requires `--force` to retry |
+| `NeedsAction` | User intervention required | Skip with separate counter |
+
+### Schema Versioning
+
+Each KB DB carries a `PRAGMA user_version` tag. The `exec` command migrates older schemas automatically as part of `InitializeSchema()`. The `serve` command opens DBs read-only and never triggers migration — older-schema KBs continue to serve search queries correctly while their new-feature columns remain unused.
+
+The `check_changes` tool reports `is_schema_stale: true` when a re-index would trigger schema migration. This appears to host applications (e.g., AssistStudio) as a "changes detected" signal in the same channel as content changes — a single user action ("re-index") handles both.
+
+### Logging
+
+Indexing emits a structured timing log per `exec` run at `%LOCALAPPDATA%\FieldCure\Mcp.Rag\{kb-id}\index_timing.log`:
+
+```
+--- 2026-04-15 17:31:39 force=False files=12 ---
+[Index] Done — indexed=0 skipped=11 failed=0 degraded=1 deferred=0 removed=0 chunks=0 elapsed=85ms
+```
+
+Binary-split events are logged at Info level (lifecycle: `start`/`done`) and Warning level (terminal per-chunk failures). Per-depth trace requires `--verbose` flag:
+
+```bash
+fieldcure-mcp-rag exec --path <kb-path> --verbose
+```
 
 ## Installation
 
@@ -189,7 +274,7 @@ All tools (except `list_knowledge_bases`) require a `kb_id` parameter to specify
 | `search_documents` | Hybrid BM25 + vector search with RRF fusion |
 | `get_document_chunk` | Retrieve full content of a specific chunk by ID |
 | `get_index_info` | Index metadata (file/chunk counts, last indexed timestamp, prompt config, stale detection, indexing lock status). *Primarily used by host applications such as AssistStudio to display KB status.* |
-| `check_changes` | Dry-run filesystem scan comparing source files against the index. Returns added/modified/deleted/failed file paths and counts. *Primarily used by host applications to surface re-indexing prompts.* |
+| `check_changes` | Dry-run filesystem scan comparing source files against the index. Returns added/modified/deleted/failed file paths and counts, plus `is_prompt_stale` and `is_schema_stale` flags. *Primarily used by host applications to surface re-indexing prompts.* |
 
 ### Search Modes
 
@@ -224,7 +309,8 @@ src/FieldCure.Mcp.Rag/
 │   ├── ICredentialService.cs   # PasswordVault abstraction
 │   └── CredentialService.cs    # Windows Credential Manager P/Invoke
 ├── Indexing/
-│   └── IndexingEngine.cs       # Headless indexing pipeline
+│   ├── IndexingEngine.cs       # Headless indexing pipeline (2-commit model)
+│   └── EmbeddingBatchSplitter.cs  # Binary-split per-chunk failure isolation
 ├── Contextualization/
 │   ├── IChunkContextualizer.cs
 │   ├── NullChunkContextualizer.cs
