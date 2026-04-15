@@ -144,6 +144,10 @@ Binary-split events are logged at Info level (lifecycle: `start`/`done`) and War
 fieldcure-mcp-rag exec --path <kb-path> --verbose
 ```
 
+### Concurrent Indexing
+
+Different KBs can be indexed in parallel — each runs as a separate `exec` process against its own SQLite database. The same KB is protected by the `_indexing_lock` table, so a second `exec` against an already-running KB exits immediately with code 1. Resource contention (embedding API rate limits, GPU VRAM when multiple Ollama models are loaded, disk I/O) is currently unmanaged; for 5+ concurrent KBs, consider sequential indexing or staggered starts.
+
 ## Installation
 
 ### dotnet tool (recommended)
