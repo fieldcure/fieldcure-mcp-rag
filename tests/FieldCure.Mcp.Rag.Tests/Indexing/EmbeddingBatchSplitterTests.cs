@@ -1,5 +1,6 @@
 using FieldCure.Mcp.Rag.Embedding;
 using FieldCure.Mcp.Rag.Indexing;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace FieldCure.Mcp.Rag.Tests.Indexing;
@@ -222,7 +223,127 @@ public class EmbeddingBatchSplitterTests
         });
     }
 
-    #region Fake provider
+    [TestMethod]
+    public async Task HappyPath_EmitsNoLogMessages()
+    {
+        // Happy path must be absolutely silent — no Info/Debug/Warning.
+        // This protects normal runs from log spam.
+        var provider = new FakeEmbeddingProvider(_ => false, 4);
+        var logger = new RecordingLogger();
+
+        var chunkIds = new[] { "a", "b", "c", "d" };
+        var texts = new[] { "t1", "t2", "t3", "t4" };
+
+        var result = await EmbeddingBatchSplitter.EmbedWithBinarySplitAsync(
+            provider, logger, chunkIds, texts, CancellationToken.None,
+            sourceLabel: "happy.pdf");
+
+        Assert.IsFalse(result.DeferredFallback);
+        Assert.AreEqual(4, result.Succeeded.Count);
+        Assert.AreEqual(0, logger.Records.Count,
+            "Happy path must emit no log messages — got: " +
+            string.Join(", ", logger.Records.Select(r => r.Message)));
+    }
+
+    [TestMethod]
+    public async Task SplitMode_EmitsStartAndDoneWithDiagnostics()
+    {
+        // One bad chunk → split mode. Verify the trace frames are emitted:
+        // start (Info), done (Info) with providerCalls + depthMax, and the
+        // sourcePath label appears in both.
+        var provider = new FakeEmbeddingProvider(
+            rejectPredicate: texts => texts.Any(t => t == "BAD"),
+            dimension: 4);
+        var logger = new RecordingLogger();
+
+        var chunkIds = new[] { "a", "b", "c", "d" };
+        var texts = new[] { "ok", "BAD", "ok", "ok" };
+
+        var result = await EmbeddingBatchSplitter.EmbedWithBinarySplitAsync(
+            provider, logger, chunkIds, texts, CancellationToken.None,
+            sourceLabel: "traced.pdf");
+
+        Assert.AreEqual(3, result.Succeeded.Count);
+        Assert.AreEqual(1, result.FailedChunkIds.Count);
+
+        var infoMessages = logger.Records
+            .Where(r => r.Level == LogLevel.Information)
+            .Select(r => r.Message)
+            .ToArray();
+
+        Assert.IsTrue(
+            infoMessages.Any(m => m.Contains("[BinarySplit] start")
+                && m.Contains("sourcePath=\"traced.pdf\"")
+                && m.Contains("chunks=4")),
+            "Expected start line with sourcePath and chunk count — got: " +
+            string.Join(" | ", infoMessages));
+
+        Assert.IsTrue(
+            infoMessages.Any(m => m.Contains("[BinarySplit] done")
+                && m.Contains("promoted=3")
+                && m.Contains("failed=1")
+                && m.Contains("fallback=False")
+                && m.Contains("providerCalls=")
+                && m.Contains("depthMax=")),
+            "Expected done line with diagnostics — got: " +
+            string.Join(" | ", infoMessages));
+
+        // Terminal per-chunk failure is Warning-level.
+        var warnings = logger.Records
+            .Where(r => r.Level == LogLevel.Warning)
+            .Select(r => r.Message)
+            .ToArray();
+        Assert.IsTrue(
+            warnings.Any(m => m.Contains("size=1 FAILED") && m.Contains("chunk b")),
+            "Expected Warning for size=1 chunk rejection — got: " +
+            string.Join(" | ", warnings));
+    }
+
+    [TestMethod]
+    public async Task SplitMode_UsesAbsoluteRangeOffsets_NotLocalIndices()
+    {
+        // The bad chunk at absolute index 2 should appear as range=[2..2]
+        // in the Warning line — not [0..0] from some sub-batch's local view.
+        var provider = new FakeEmbeddingProvider(
+            rejectPredicate: texts => texts.Any(t => t == "BAD"),
+            dimension: 4);
+        var logger = new RecordingLogger();
+
+        var chunkIds = new[] { "c0", "c1", "c2", "c3" };
+        var texts = new[] { "ok", "ok", "BAD", "ok" };
+
+        await EmbeddingBatchSplitter.EmbedWithBinarySplitAsync(
+            provider, logger, chunkIds, texts, CancellationToken.None);
+
+        var sizeOneWarning = logger.Records
+            .Where(r => r.Level == LogLevel.Warning)
+            .Select(r => r.Message)
+            .FirstOrDefault(m => m.Contains("size=1 FAILED"));
+
+        Assert.IsNotNull(sizeOneWarning);
+        Assert.IsTrue(
+            sizeOneWarning.Contains("range=[2..2]"),
+            "Expected absolute range=[2..2] for chunk at index 2 — got: " + sizeOneWarning);
+    }
+
+    #region Test doubles
+
+    sealed record LogRecord(LogLevel Level, string Message);
+
+    sealed class RecordingLogger : ILogger
+    {
+        public List<LogRecord> Records { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            Records.Add(new LogRecord(logLevel, formatter(state, exception)));
+        }
+    }
 
     sealed class FakeEmbeddingProvider : IEmbeddingProvider
     {

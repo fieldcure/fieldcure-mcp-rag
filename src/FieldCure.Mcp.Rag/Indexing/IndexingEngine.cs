@@ -294,7 +294,8 @@ public sealed class IndexingEngine
                             failed, providerHealth);
 
                         splitResult = await EmbeddingBatchSplitter.EmbedWithBinarySplitAsync(
-                            _embeddingProvider, _logger, chunkIds, textsToEmbed, cancellationToken);
+                            _embeddingProvider, _logger, chunkIds, textsToEmbed, cancellationToken,
+                            sourceLabel: storagePath);
                     }
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
                     catch (HttpRequestException httpEx)
@@ -378,7 +379,7 @@ public sealed class IndexingEngine
                     totalChunks += splitResult.Succeeded.Count;
 
                     var splitNote = splitResult.FailedChunkIds.Count > 0
-                        ? $" ({splitResult.FailedChunkIds.Count} rejected)"
+                        ? $" ({splitResult.FailedChunkIds.Count} failed via split)"
                         : "";
                     var line = $"[Index] {Path.GetFileName(filePath)} — {chunks.Count} chunks" +
                                (rawCount > 0 ? $" ({rawCount} raw)" : "") +
@@ -615,7 +616,8 @@ public sealed class IndexingEngine
             try
             {
                 splitResult = await EmbeddingBatchSplitter.EmbedWithBinarySplitAsync(
-                    _embeddingProvider, _logger, eligibleIds, eligibleTexts, ct);
+                    _embeddingProvider, _logger, eligibleIds, eligibleTexts, ct,
+                    sourceLabel: sourcePath);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
