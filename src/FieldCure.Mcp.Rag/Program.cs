@@ -93,12 +93,15 @@ async Task<int> RunExecAsync(string[] args)
     if (kbPath is null) return PrintUsage();
 
     var force = args.Any(a => a.Equals("--force", StringComparison.OrdinalIgnoreCase));
+    var verbose = args.Any(a => a.Equals("--verbose", StringComparison.OrdinalIgnoreCase)
+        || a.Equals("-v", StringComparison.OrdinalIgnoreCase));
 
     var config = RagConfig.Load(kbPath);
     var dbPath = Path.Combine(kbPath, "rag.db");
 
     using var loggerFactory = LoggerFactory.Create(builder =>
     {
+        builder.SetMinimumLevel(verbose ? LogLevel.Debug : LogLevel.Information);
         builder.AddConsole(options =>
         {
             options.LogToStandardErrorThreshold = LogLevel.Trace;
@@ -212,7 +215,7 @@ static int PrintUsage()
     Console.Error.WriteLine();
     Console.Error.WriteLine("Usage:");
     Console.Error.WriteLine("  fieldcure-mcp-rag serve --base-path <path>           Start multi-KB MCP search server (stdio)");
-    Console.Error.WriteLine("  fieldcure-mcp-rag exec  --path <kb-path> [--force]   Run headless indexing for a single KB");
+    Console.Error.WriteLine("  fieldcure-mcp-rag exec  --path <kb-path> [--force] [--verbose|-v]   Run headless indexing for a single KB");
     Console.Error.WriteLine();
     Console.Error.WriteLine("Exit codes (exec mode):");
     Console.Error.WriteLine("  0  Succeeded");

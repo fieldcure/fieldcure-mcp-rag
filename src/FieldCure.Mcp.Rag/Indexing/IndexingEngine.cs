@@ -760,35 +760,15 @@ public sealed class IndexingEngine
         int indexed, int skipped, int failed, int degraded, int partiallyDeferred,
         List<FailedFile> failedFiles, TimeSpan duration, ProviderHealth providerHealth)
     {
-        // Sanity check: the in-memory counters should match the actual DB state
-        // after a successful 2-commit run. A mismatch is a bug — either the
-        // counter was incremented without a corresponding persist (the classic
-        // v1.4.0 MarkFileAsFailedAsync no-op bug) or the DB was mutated outside
-        // the normal code path. Warn loudly with both numbers so it's easy to
-        // triage from the logs.
-        try
-        {
-            var dbDegraded = await _store.CountFilesByStatusAsync(Models.FileIndexStatus.Degraded);
-            if (dbDegraded != degraded)
-            {
-                _logger.LogWarning(
-                    "Counter mismatch: in-memory degraded={Counter}, DB Degraded count={DbCount}",
-                    degraded, dbDegraded);
-            }
-
-            var dbDeferred = await _store.CountFilesByStatusAsync(Models.FileIndexStatus.PartiallyDeferred);
-            if (dbDeferred != partiallyDeferred)
-            {
-                _logger.LogWarning(
-                    "Counter mismatch: in-memory partiallyDeferred={Counter}, DB PartiallyDeferred count={DbCount}",
-                    partiallyDeferred, dbDeferred);
-            }
-        }
-        catch (Exception ex)
-        {
-            // Sanity check is diagnostic only — never fail metadata persistence because of it.
-            _logger.LogDebug(ex, "Counter sanity check failed (non-fatal)");
-        }
+        // Note: no counter sanity check here. The in-memory counters are
+        // per-run deltas (files that transitioned to each status this run),
+        // while DB CountFilesByStatusAsync returns current totals. They
+        // are not expected to match — a previously-Degraded file that
+        // hash-skips this run contributes to the DB count but not the
+        // in-memory delta. The v1.4.0 MarkFileAsFailedAsync no-op bug this
+        // check was meant to catch is now prevented structurally by the
+        // 2-commit model (PersistChunksAsPendingAsync unconditionally
+        // inserts a file_index row via INSERT ... ON CONFLICT).
 
         // Legacy keys (backward compatible)
         await _store.SetMetadataAsync("last_failed_count", failed.ToString());
