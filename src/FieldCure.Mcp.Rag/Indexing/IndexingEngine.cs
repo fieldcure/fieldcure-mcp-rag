@@ -23,6 +23,14 @@ public sealed class IndexingEngine
 {
     const int MaxContextualizationParallelism = 4;
 
+    /// <summary>
+    /// Per-chunk retry ceiling for the deferred-retry second pass. Once a
+    /// chunk has been attempted this many times (across separate exec runs),
+    /// it is marked <see cref="Models.ChunkIndexStatus.Failed"/> and stops
+    /// consuming provider calls.
+    /// </summary>
+    public const int MaxEmbeddingRetries = 3;
+
     static readonly HashSet<string> PlainTextExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".txt", ".md"
@@ -454,13 +462,35 @@ public sealed class IndexingEngine
                 }
             }
 
+            // === Deferred retry second pass ===
+            // Picks up files still in PartiallyDeferred state, including any
+            // left over from previous exec runs. Uses the same binary-split
+            // helper as the main loop, so per-chunk failure isolation is free.
+            var (retriedIndexed, retriedDegraded, retriedFailed, healthAfter) =
+                await RunDeferredRetryPassAsync(providerHealth, cancellationToken);
+            providerHealth = healthAfter;
+            indexed += retriedIndexed;
+            degraded += retriedDegraded;
+            failed += retriedFailed;
+
+            // Recompute partiallyDeferred from the DB so the summary reflects
+            // whatever the second pass left in PartiallyDeferred state — which
+            // may differ from the main-loop counter (second pass may have
+            // promoted files from previous execs that this run never touched).
+            partiallyDeferred = await _store.CountFilesByStatusAsync(
+                FileIndexStatus.PartiallyDeferred);
+
             totalSw.Stop();
             var duration = totalSw.Elapsed;
 
+            var retriedSuffix = (retriedIndexed + retriedDegraded + retriedFailed) > 0
+                ? $" (deferred-retry: +{retriedIndexed} indexed, +{retriedDegraded} degraded, +{retriedFailed} failed)"
+                : "";
             var summary = $"[Index] Done — indexed={indexed} skipped={skipped} failed={failed} " +
                           $"degraded={degraded} deferred={partiallyDeferred} " +
                           (needsAction > 0 ? $"needsAction={needsAction} " : "") +
-                          $"removed={removed} chunks={totalChunks} elapsed={totalSw.ElapsedMilliseconds}ms";
+                          $"removed={removed} chunks={totalChunks} elapsed={totalSw.ElapsedMilliseconds}ms" +
+                          retriedSuffix;
             _logger.LogInformation("{Summary}", summary);
             logWriter.WriteLine(summary);
 
@@ -483,6 +513,201 @@ public sealed class IndexingEngine
     }
 
     #region Stage Methods
+
+    /// <summary>
+    /// Deferred-retry second pass. After the main loop finishes, this walks
+    /// every chunk still in <see cref="Models.ChunkIndexStatus.PendingEmbedding"/>
+    /// state (grouped by source file) and re-runs Stage 4 embedding via
+    /// <see cref="EmbeddingBatchSplitter"/>. This picks up files that the
+    /// main loop deferred this run AND files left deferred by previous runs
+    /// so the user does not have to invoke anything explicitly.
+    ///
+    /// Per-file contract:
+    /// <list type="bullet">
+    ///   <item><description>Chunks whose <c>retry_count &gt;= MaxEmbeddingRetries</c>
+    ///     are marked <see cref="Models.ChunkIndexStatus.Failed"/> without calling the
+    ///     provider — they've already been tried enough times.</description></item>
+    ///   <item><description>Remaining eligible chunks go through the binary-split
+    ///     helper. Successful ones are promoted atomically via
+    ///     <c>PromoteChunksToIndexedAsync</c>; rejected ones are marked Failed.
+    ///     If all eligible chunks are rejected, the file itself is Failed.</description></item>
+    ///   <item><description>On <c>DeferredFallback</c> (safety guard fired), every
+    ///     eligible chunk's <c>retry_count</c> is incremented and the file
+    ///     stays <see cref="FileIndexStatus.PartiallyDeferred"/> for the next run.</description></item>
+    ///   <item><description>On 401/403 (auth failure), <c>ProviderHealth</c> is
+    ///     flipped to <see cref="ProviderHealth.EmbeddingUnavailable"/> and the
+    ///     pass halts so we don't waste further calls on broken credentials.</description></item>
+    /// </list>
+    ///
+    /// Counters returned are additive to the main loop's tallies. The caller
+    /// recomputes <c>partiallyDeferred</c> from the DB afterwards so the
+    /// summary reflects whatever state files actually ended up in.
+    /// </summary>
+    async Task<(int Indexed, int Degraded, int Failed, ProviderHealth Health)> RunDeferredRetryPassAsync(
+        ProviderHealth providerHealth,
+        CancellationToken ct)
+    {
+        if (providerHealth == ProviderHealth.EmbeddingUnavailable)
+        {
+            _logger.LogInformation(
+                "[DeferredRetry] Skipping second pass: provider unavailable (flagged by main loop).");
+            return (0, 0, 0, providerHealth);
+        }
+
+        // Load everything at once, grouped by file. A 2-byte-per-chunk row
+        // overhead is fine for the realistic worst case (a few thousand
+        // chunks across a handful of files).
+        var pending = await _store.GetPendingEmbeddingChunksAsync(maxCount: int.MaxValue);
+        if (pending.Count == 0)
+            return (0, 0, 0, providerHealth);
+
+        var byFile = pending
+            .GroupBy(p => p.SourcePath)
+            .ToList();
+
+        _logger.LogInformation(
+            "[DeferredRetry] Second pass: {FileCount} file(s), {ChunkCount} pending chunk(s).",
+            byFile.Count, pending.Count);
+
+        var (retriedIndexed, retriedDegraded, retriedFailed) = (0, 0, 0);
+
+        foreach (var group in byFile)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var sourcePath = group.Key;
+            var chunks = group.ToList();
+
+            var exhausted = chunks.Where(c => c.RetryCount >= MaxEmbeddingRetries).ToList();
+            var eligible = chunks.Where(c => c.RetryCount < MaxEmbeddingRetries).ToList();
+
+            // Chunks that have burned through their retry budget: mark Failed
+            // up front so they don't keep consuming provider calls forever.
+            foreach (var chunk in exhausted)
+            {
+                await _store.UpdateChunkStatusAsync(
+                    chunk.Id,
+                    Models.ChunkIndexStatus.Failed,
+                    _embeddingProvider.ModelId,
+                    embedding: null,
+                    lastError: $"retry budget exhausted (MaxEmbeddingRetries={MaxEmbeddingRetries})");
+            }
+
+            if (eligible.Count == 0)
+            {
+                // Every pending chunk hit the ceiling → the file as a whole is Failed.
+                await _store.MarkFileAsFailedAsync(
+                    sourcePath,
+                    FileIndexStatus.Failed,
+                    $"All {exhausted.Count} pending chunks exhausted retry budget",
+                    "embed");
+                retriedFailed++;
+                _logger.LogWarning(
+                    "[DeferredRetry] {File} — all {Count} pending chunks exhausted retries, file marked Failed.",
+                    sourcePath, exhausted.Count);
+                continue;
+            }
+
+            var eligibleIds = eligible.Select(c => c.Id).ToArray();
+            var eligibleTexts = eligible.Select(c => c.EnrichedText).ToArray();
+
+            EmbedWithSplitResult splitResult;
+            try
+            {
+                splitResult = await EmbeddingBatchSplitter.EmbedWithBinarySplitAsync(
+                    _embeddingProvider, _logger, eligibleIds, eligibleTexts, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (HttpRequestException httpEx)
+                when (httpEx.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            {
+                _logger.LogError(httpEx,
+                    "[DeferredRetry] Provider auth failed ({StatusCode}) for {File}. " +
+                    "Halting second pass; pending chunks preserved for next exec.",
+                    httpEx.StatusCode, sourcePath);
+                providerHealth = ProviderHealth.EmbeddingUnavailable;
+                break;
+            }
+
+            if (splitResult.DeferredFallback)
+            {
+                // Safety guard fired (max depth or >50% ratio). Bump retry_count
+                // on every eligible chunk so we converge on Failed if the
+                // underlying condition persists across runs.
+                foreach (var chunk in eligible)
+                {
+                    await _store.UpdateChunkStatusAsync(
+                        chunk.Id,
+                        Models.ChunkIndexStatus.PendingEmbedding,
+                        _embeddingProvider.ModelId,
+                        embedding: null,
+                        lastError: "deferred retry: safety guard fired");
+                }
+                _logger.LogWarning(
+                    "[DeferredRetry] {File} — safety guard fired, bumped retry_count on {Count} chunks.",
+                    sourcePath, eligible.Count);
+                continue;
+            }
+
+            // Mark binary-split-isolated chunks as Failed BEFORE promoting
+            // the survivors — keeps file_index.chunks_pending consistent at 0.
+            foreach (var failedId in splitResult.FailedChunkIds)
+            {
+                await _store.UpdateChunkStatusAsync(
+                    failedId,
+                    Models.ChunkIndexStatus.Failed,
+                    _embeddingProvider.ModelId,
+                    embedding: null,
+                    lastError: "embedding rejected (binary-split isolated)");
+            }
+
+            if (splitResult.Succeeded.Count == 0)
+            {
+                await _store.MarkFileAsFailedAsync(
+                    sourcePath,
+                    FileIndexStatus.Failed,
+                    $"All {splitResult.FailedChunkIds.Count} pending chunks rejected by embedding provider",
+                    "embed");
+                retriedFailed++;
+                _logger.LogWarning(
+                    "[DeferredRetry] {File} — all {Count} pending chunks rejected, file marked Failed.",
+                    sourcePath, splitResult.FailedChunkIds.Count);
+                continue;
+            }
+
+            var succeededIds = splitResult.Succeeded.Select(s => s.ChunkId).ToArray();
+            var succeededEmbeddings = splitResult.Succeeded.Select(s => s.Embedding).ToArray();
+            var anyFailed = splitResult.FailedChunkIds.Count > 0 || exhausted.Count > 0;
+            var finalStatus = anyFailed ? FileIndexStatus.Degraded : FileIndexStatus.Ready;
+
+            await _store.PromoteChunksToIndexedAsync(
+                sourcePath,
+                succeededIds,
+                succeededEmbeddings,
+                _embeddingProvider.ModelId,
+                fileStatus: finalStatus,
+                chunksPending: 0,
+                ct: ct);
+
+            if (finalStatus == FileIndexStatus.Degraded) retriedDegraded++;
+            else retriedIndexed++;
+
+            _logger.LogInformation(
+                "[DeferredRetry] {File} — promoted {Succeeded}/{Eligible} (failed={Failed}, exhausted={Exhausted}), " +
+                "file → {Status}",
+                sourcePath, splitResult.Succeeded.Count, eligible.Count,
+                splitResult.FailedChunkIds.Count, exhausted.Count, finalStatus);
+        }
+
+        _logger.LogInformation(
+            "[DeferredRetry] Pass complete: indexed={Indexed} degraded={Degraded} failed={Failed}",
+            retriedIndexed, retriedDegraded, retriedFailed);
+
+        return (retriedIndexed, retriedDegraded, retriedFailed, providerHealth);
+    }
 
     /// <summary>
     /// Stage 3: Contextualize all chunks in parallel.

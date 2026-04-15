@@ -1,3 +1,4 @@
+using System.Net;
 using FieldCure.Mcp.Rag.Embedding;
 using Microsoft.Extensions.Logging;
 
@@ -76,6 +77,14 @@ internal static class EmbeddingBatchSplitter
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
+            throw;
+        }
+        catch (HttpRequestException httpEx)
+            when (httpEx.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            // Auth/authorization failure is provider-wide and non-recoverable
+            // inside the split. Bubble it up so the caller can flag
+            // ProviderHealth and bail out instead of thrashing on retries.
             throw;
         }
         catch (Exception ex)

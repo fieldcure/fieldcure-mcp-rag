@@ -181,6 +181,47 @@ public class EmbeddingBatchSplitterTests
         Assert.AreEqual("bad", result.FailedChunkIds[0]);
     }
 
+    [TestMethod]
+    public async Task UnauthorizedFromProvider_BubblesUp_NotSwallowed()
+    {
+        // 401 is auth failure — must not be converted into per-chunk
+        // rejections. The caller (deferred retry pass) needs it to flag
+        // ProviderHealth and break.
+        var provider = new FakeEmbeddingProvider(
+            rejectPredicate: _ => throw new HttpRequestException(
+                "Unauthorized",
+                inner: null,
+                statusCode: System.Net.HttpStatusCode.Unauthorized),
+            dimension: 4);
+
+        await Assert.ThrowsExactlyAsync<HttpRequestException>(async () =>
+        {
+            await EmbeddingBatchSplitter.EmbedWithBinarySplitAsync(
+                provider, NullLogger.Instance,
+                new[] { "a", "b" }, new[] { "t1", "t2" },
+                CancellationToken.None);
+        });
+    }
+
+    [TestMethod]
+    public async Task ForbiddenFromProvider_BubblesUp_NotSwallowed()
+    {
+        var provider = new FakeEmbeddingProvider(
+            rejectPredicate: _ => throw new HttpRequestException(
+                "Forbidden",
+                inner: null,
+                statusCode: System.Net.HttpStatusCode.Forbidden),
+            dimension: 4);
+
+        await Assert.ThrowsExactlyAsync<HttpRequestException>(async () =>
+        {
+            await EmbeddingBatchSplitter.EmbedWithBinarySplitAsync(
+                provider, NullLogger.Instance,
+                new[] { "a" }, new[] { "t1" },
+                CancellationToken.None);
+        });
+    }
+
     #region Fake provider
 
     sealed class FakeEmbeddingProvider : IEmbeddingProvider
