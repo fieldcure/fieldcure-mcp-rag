@@ -1112,4 +1112,104 @@ public class SqliteVectorStoreTests
         Assert.AreEqual(1, reader.GetInt32(1));
         Assert.AreEqual((int)ProviderHealth.EmbeddingUnavailable, reader.GetInt32(2));
     }
+
+    #region user_version sentinel
+
+    [TestMethod]
+    public void GetUserVersion_FreshDb_ReturnsTargetVersion()
+    {
+        var dbPath = CreateTempDb();
+        using var store = new SqliteVectorStore(dbPath);
+
+        Assert.AreEqual(SqliteVectorStore.TargetUserVersion, store.GetUserVersion());
+    }
+
+    [TestMethod]
+    public void GetUserVersion_FreshDb_SqlitePragmaMatches()
+    {
+        var dbPath = CreateTempDb();
+        using (var store = new SqliteVectorStore(dbPath)) { }
+
+        var connStr = new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString();
+        using var conn = new SqliteConnection(connStr);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "PRAGMA user_version;";
+        var raw = Convert.ToInt32(cmd.ExecuteScalar());
+
+        Assert.AreEqual(SqliteVectorStore.TargetUserVersion, raw);
+    }
+
+    [TestMethod]
+    public void ReadUserVersion_FreshDb_ReturnsTargetVersion()
+    {
+        var dbPath = CreateTempDb();
+        using (var store = new SqliteVectorStore(dbPath)) { }
+
+        Assert.AreEqual(SqliteVectorStore.TargetUserVersion, SqliteVectorStore.ReadUserVersion(dbPath));
+    }
+
+    [TestMethod]
+    public void ReadUserVersion_LegacyUntaggedDb_ReturnsZero()
+    {
+        // Simulate a legacy DB: create it via raw SQLite without InitializeSchema()
+        // running, so user_version is never set. Matches what every KB looked like
+        // before v1.4.1 landed.
+        var dir = Path.Combine(Path.GetTempPath(), "rag_tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var dbPath = Path.Combine(dir, "legacy.db");
+
+        var connStr = new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString();
+        using (var conn = new SqliteConnection(connStr))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            // Minimal table so the file is a valid SQLite DB but untagged.
+            cmd.CommandText = "CREATE TABLE marker (x INTEGER);";
+            cmd.ExecuteNonQuery();
+        }
+
+        Assert.AreEqual(0, SqliteVectorStore.ReadUserVersion(dbPath));
+    }
+
+    [TestMethod]
+    public void GetUserVersion_ReopenExistingDb_StillReturnsTargetVersion()
+    {
+        var dbPath = CreateTempDb();
+        using (var store = new SqliteVectorStore(dbPath)) { }
+
+        // Re-opening an already-initialized DB should re-run InitializeSchema
+        // (idempotent) and leave user_version at TargetUserVersion.
+        using var reopened = new SqliteVectorStore(dbPath);
+        Assert.AreEqual(SqliteVectorStore.TargetUserVersion, reopened.GetUserVersion());
+    }
+
+    [TestMethod]
+    public void OpenReadOnly_DoesNotChangeUserVersion()
+    {
+        // Legacy DB — no user_version tag.
+        var dir = Path.Combine(Path.GetTempPath(), "rag_tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var dbPath = Path.Combine(dir, "legacy.db");
+        var connStr = new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString();
+        using (var conn = new SqliteConnection(connStr))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "CREATE TABLE marker (x INTEGER);";
+            cmd.ExecuteNonQuery();
+        }
+
+        // Opening read-only must never run InitializeSchema, so user_version
+        // stays at 0 even after GetUserVersion() is called. This is the core
+        // "serve = reader" invariant in unit-test form.
+        using (var roStore = new SqliteVectorStore(dbPath, readOnly: true))
+        {
+            Assert.AreEqual(0, roStore.GetUserVersion());
+        }
+
+        Assert.AreEqual(0, SqliteVectorStore.ReadUserVersion(dbPath));
+    }
+
+    #endregion
 }
