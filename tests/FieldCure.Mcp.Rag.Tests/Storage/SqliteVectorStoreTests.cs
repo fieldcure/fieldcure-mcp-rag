@@ -873,8 +873,9 @@ public class SqliteVectorStoreTests
         var fileInfo = new FileWriteInfo { FileHash = "h1", Status = FileIndexStatus.Ready, ChunksRaw = 0, ChunksPending = 0 };
         await store.ReplaceFileChunksAsync("data.pdf", chunks, embs, "test", infos, fileInfo);
 
-        // Mark as failed
-        await store.MarkFileAsFailedAsync("data.pdf", FileIndexStatus.NeedsAction, "OCR unavailable", "parse");
+        // Mark as failed — should report success (row updated).
+        var updated = await store.MarkFileAsFailedAsync("data.pdf", FileIndexStatus.NeedsAction, "OCR unavailable", "parse");
+        Assert.IsTrue(updated, "MarkFileAsFailedAsync should return true when a file_index row was updated.");
 
         // Chunks preserved
         Assert.IsNotNull(await store.GetChunkAsync("mf_0"));
@@ -895,16 +896,70 @@ public class SqliteVectorStoreTests
     }
 
     [TestMethod]
-    public async Task MarkFileAsFailed_NoExistingFile_DoesNotThrow()
+    public async Task MarkFileAsFailed_NoExistingFile_ReturnsFalse()
+    {
+        // Replaces the legacy MarkFileAsFailed_NoExistingFile_DoesNotThrow test,
+        // which silently documented a latent bug: MarkFileAsFailedAsync is a
+        // pure UPDATE with no INSERT fallback, so a file that was never indexed
+        // could not be marked failed, and the caller had no way to detect the
+        // no-op. v1.4.2 changes the return type to Task<bool> so the caller
+        // (IndexingEngine's FileExtractionException catch) can log a warning
+        // that the file will surface as "added" in check_changes instead.
+        using var store = new SqliteVectorStore(CreateTempDb());
+
+        var updated = await store.MarkFileAsFailedAsync(
+            "nonexistent.txt", FileIndexStatus.Failed, "parse error", "parse");
+
+        Assert.IsFalse(updated, "MarkFileAsFailedAsync must return false for a file with no existing file_index row.");
+
+        // And the row should not have been created (UPDATE did not fall back to INSERT).
+        var hash = await store.GetFileHashAsync("nonexistent.txt");
+        Assert.IsNull(hash);
+    }
+
+    [TestMethod]
+    public async Task CountFilesByStatus_ReflectsFileIndexState()
+    {
+        var dbPath = CreateTempDb();
+        using var store = new SqliteVectorStore(dbPath);
+
+        // Seed three files in different statuses via PersistChunksAsPendingAsync
+        // (PartiallyDeferred) and ReplaceFileChunksAsync (Ready + Degraded).
+        await store.PersistChunksAsPendingAsync(
+            "deferred-1.pdf",
+            new[] { new DocumentChunk { Id = "d1_0", SourcePath = "deferred-1.pdf", ChunkIndex = 0, Content = "x" } },
+            new[] { new ChunkWriteInfo { EnrichedText = "x", Status = ChunkIndexStatus.PendingEmbedding, IsContextualized = true } },
+            new FileWriteInfo { FileHash = "h_d1", Status = FileIndexStatus.PartiallyDeferred, ChunksRaw = 0, ChunksPending = 1 });
+
+        await store.PersistChunksAsPendingAsync(
+            "deferred-2.pdf",
+            new[] { new DocumentChunk { Id = "d2_0", SourcePath = "deferred-2.pdf", ChunkIndex = 0, Content = "y" } },
+            new[] { new ChunkWriteInfo { EnrichedText = "y", Status = ChunkIndexStatus.PendingEmbedding, IsContextualized = true } },
+            new FileWriteInfo { FileHash = "h_d2", Status = FileIndexStatus.PartiallyDeferred, ChunksRaw = 0, ChunksPending = 1 });
+
+        await store.ReplaceFileChunksAsync(
+            "ready.txt",
+            new[] { new DocumentChunk { Id = "r_0", SourcePath = "ready.txt", ChunkIndex = 0, Content = "z" } },
+            new[] { new float[] { 1f } },
+            "test",
+            new[] { new ChunkWriteInfo { EnrichedText = "z", Status = ChunkIndexStatus.Indexed, IsContextualized = true } },
+            new FileWriteInfo { FileHash = "h_r", Status = FileIndexStatus.Ready, ChunksRaw = 0, ChunksPending = 0 });
+
+        Assert.AreEqual(2, await store.CountFilesByStatusAsync(FileIndexStatus.PartiallyDeferred));
+        Assert.AreEqual(1, await store.CountFilesByStatusAsync(FileIndexStatus.Ready));
+        Assert.AreEqual(0, await store.CountFilesByStatusAsync(FileIndexStatus.Failed));
+        Assert.AreEqual(0, await store.CountFilesByStatusAsync(FileIndexStatus.Degraded));
+        Assert.AreEqual(0, await store.CountFilesByStatusAsync(FileIndexStatus.NeedsAction));
+    }
+
+    [TestMethod]
+    public async Task CountFilesByStatus_EmptyDb_ReturnsZero()
     {
         using var store = new SqliteVectorStore(CreateTempDb());
 
-        // No existing file_index entry — should not throw
-        await store.MarkFileAsFailedAsync("nonexistent.txt", FileIndexStatus.Failed, "parse error", "parse");
-
-        // No row created (UPDATE on non-existing row is a no-op)
-        var hash = await store.GetFileHashAsync("nonexistent.txt");
-        Assert.IsNull(hash);
+        Assert.AreEqual(0, await store.CountFilesByStatusAsync(FileIndexStatus.Ready));
+        Assert.AreEqual(0, await store.CountFilesByStatusAsync(FileIndexStatus.PartiallyDeferred));
+        Assert.AreEqual(0, await store.CountFilesByStatusAsync(FileIndexStatus.Failed));
     }
 
     [TestMethod]

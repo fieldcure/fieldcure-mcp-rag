@@ -607,9 +607,16 @@ public sealed class SqliteVectorStore : IDisposable
     /// <summary>
     /// Marks a file as failed without writing or deleting any chunks.
     /// Preserves any previously indexed chunks — only updates file_index status.
-    /// No-op if the file has no existing file_index entry.
+    /// For files that were never indexed (no file_index row), this is a no-op and
+    /// the method returns <c>false</c> so the caller can detect and react — e.g.
+    /// log a warning that the file will surface as "added" in check_changes on
+    /// the next run.
     /// </summary>
-    public async Task MarkFileAsFailedAsync(
+    /// <returns>
+    /// <c>true</c> if an existing file_index row was updated; <c>false</c> if no
+    /// row matched the supplied <paramref name="sourcePath"/>.
+    /// </returns>
+    public async Task<bool> MarkFileAsFailedAsync(
         string sourcePath,
         FileIndexStatus status,
         string errorMessage,
@@ -626,7 +633,25 @@ public sealed class SqliteVectorStore : IDisposable
         cmd.Parameters.AddWithValue("@status", (int)status);
         cmd.Parameters.AddWithValue("@last_error", errorMessage);
         cmd.Parameters.AddWithValue("@last_error_stage", errorStage);
-        await cmd.ExecuteNonQueryAsync();
+        var rowsAffected = await cmd.ExecuteNonQueryAsync();
+        return rowsAffected > 0;
+    }
+
+    /// <summary>
+    /// Returns the number of file_index rows currently in the given status.
+    /// Used by <c>IndexingEngine</c> to sanity-check its in-memory counters
+    /// against the actual DB state at the end of a run (e.g., to detect
+    /// a drift between "partiallyDeferred" the variable and rows with
+    /// <see cref="Models.FileIndexStatus.PartiallyDeferred"/>).
+    /// </summary>
+    public async Task<int> CountFilesByStatusAsync(FileIndexStatus status)
+    {
+        await using var conn = OpenConnection();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM file_index WHERE status = @status";
+        cmd.Parameters.AddWithValue("@status", (int)status);
+        var result = await cmd.ExecuteScalarAsync();
+        return Convert.ToInt32(result);
     }
 
     /// <summary>

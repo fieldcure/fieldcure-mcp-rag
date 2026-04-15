@@ -268,9 +268,20 @@ public sealed class IndexingEngine
                 }
                 catch (FileExtractionException ex)
                 {
-                    // Stage 1 failure — preserve existing chunks, mark file_index
-                    await _store.MarkFileAsFailedAsync(
+                    // Stage 1 failure — for previously indexed files, update file_index
+                    // to NeedsAction while preserving existing chunks. For a first-time
+                    // file that fails extraction, MarkFileAsFailedAsync returns false
+                    // (no existing row to UPDATE) and the file will appear as "added" in
+                    // the next check_changes call. We surface that case with a warning
+                    // so operators can spot the stuck-new-file pattern in the logs.
+                    var updated = await _store.MarkFileAsFailedAsync(
                         storagePath, FileIndexStatus.NeedsAction, ex.Message, "extract");
+                    if (!updated)
+                    {
+                        _logger.LogWarning(
+                            "[Indexing] Extract failed for {File} but no file_index row exists; " +
+                            "file will surface as 'added' on the next check_changes.", storagePath);
+                    }
                     failed++;
                     failedFiles.Add(new FailedFile(storagePath,
                         $"{ex.InnerException?.GetType().Name ?? "Exception"}: {ex.Message}"));
@@ -382,6 +393,36 @@ public sealed class IndexingEngine
         int indexed, int skipped, int failed, int degraded, int partiallyDeferred,
         List<FailedFile> failedFiles, TimeSpan duration, ProviderHealth providerHealth)
     {
+        // Sanity check: the in-memory counters should match the actual DB state
+        // after a successful 2-commit run. A mismatch is a bug — either the
+        // counter was incremented without a corresponding persist (the classic
+        // v1.4.0 MarkFileAsFailedAsync no-op bug) or the DB was mutated outside
+        // the normal code path. Warn loudly with both numbers so it's easy to
+        // triage from the logs.
+        try
+        {
+            var dbDegraded = await _store.CountFilesByStatusAsync(Models.FileIndexStatus.Degraded);
+            if (dbDegraded != degraded)
+            {
+                _logger.LogWarning(
+                    "Counter mismatch: in-memory degraded={Counter}, DB Degraded count={DbCount}",
+                    degraded, dbDegraded);
+            }
+
+            var dbDeferred = await _store.CountFilesByStatusAsync(Models.FileIndexStatus.PartiallyDeferred);
+            if (dbDeferred != partiallyDeferred)
+            {
+                _logger.LogWarning(
+                    "Counter mismatch: in-memory partiallyDeferred={Counter}, DB PartiallyDeferred count={DbCount}",
+                    partiallyDeferred, dbDeferred);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Sanity check is diagnostic only — never fail metadata persistence because of it.
+            _logger.LogDebug(ex, "Counter sanity check failed (non-fatal)");
+        }
+
         // Legacy keys (backward compatible)
         await _store.SetMetadataAsync("last_failed_count", failed.ToString());
         await _store.SetMetadataAsync("last_failed_files",
