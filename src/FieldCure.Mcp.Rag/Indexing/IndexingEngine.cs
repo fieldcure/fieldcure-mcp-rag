@@ -269,22 +269,32 @@ public sealed class IndexingEngine
                     await _store.PersistChunksAsPendingAsync(
                         storagePath, docChunks, chunkInfos, pendingFileInfo, cancellationToken);
 
-                    // === Stage 4: Embed (batch) ===
-                    // Commit 1 has already saved the expensive upstream work. Any
-                    // failure here leaves the chunks as PendingEmbedding for the
-                    // deferred retry second pass to handle.
-                    float[][] embeddings;
+                    // === Stage 4: Embed (with binary-split failure isolation) ===
+                    // Happy path is one provider call. When the provider rejects the
+                    // batch, EmbedWithBinarySplitAsync recursively halves until it
+                    // isolates the offending chunks as size-1 rejections or triggers
+                    // a safety guard (max depth or >50% failure ratio). Commit 1 is
+                    // already on disk, so any outcome here is safe — the caller
+                    // promotes the surviving chunks and marks the rejected ones as
+                    // Failed without touching the source's OCR/contextualization.
+                    var chunkIds = docChunks.Select(c => c.Id).ToArray();
+                    var textsToEmbed = enrichResults.Select(r => r.Text).ToArray();
+                    EmbedWithSplitResult splitResult;
                     try
                     {
                         _store.UpdateProgress(fileIndex, files.Count, "embedding",
                             failed, providerHealth);
 
-                        var textsToEmbed = enrichResults.Select(r => r.Text).ToArray();
-                        embeddings = await _embeddingProvider.EmbedBatchAsync(textsToEmbed, cancellationToken);
+                        splitResult = await EmbeddingBatchSplitter.EmbedWithBinarySplitAsync(
+                            _embeddingProvider, _logger, chunkIds, textsToEmbed, cancellationToken);
                     }
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
                     catch (HttpRequestException httpEx)
                     {
+                        // Surfaces only if the helper's EmbedBatchAsync call rethrows
+                        // via the token-cancelled path or some non-Exception error
+                        // escapes — otherwise per-batch rejections are absorbed by
+                        // the helper's Exception catch.
                         throw new EmbeddingException(
                             filePath, httpEx.Message, httpEx, statusCode: httpEx.StatusCode);
                     }
@@ -293,13 +303,63 @@ public sealed class IndexingEngine
                         throw new EmbeddingException(filePath, ex.Message, ex);
                     }
 
-                    // === Commit 2a: Promote chunks to Indexed ===
-                    var chunkIds = docChunks.Select(c => c.Id).ToArray();
-                    var finalStatus = rawCount > 0 ? FileIndexStatus.Degraded : FileIndexStatus.Ready;
+                    // === Safety guard fallback: leave everything as PendingEmbedding ===
+                    if (splitResult.DeferredFallback)
+                    {
+                        partiallyDeferred++;
+                        _logger.LogWarning(
+                            "[Indexing] {File} — embedding deferred via safety guard, " +
+                            "Commit 1 chunks preserved for next exec retry.", storagePath);
+                        logWriter.WriteLine($"[DEFERRED:embed] {storagePath} — binary-split safety guard");
+                        continue;
+                    }
+
+                    // === Mark binary-split-isolated chunks as Failed first ===
+                    // Doing this before Commit 2a keeps file_index.chunks_pending
+                    // consistent: after the foreach loop no chunks remain in
+                    // PendingEmbedding state, so passing chunksPending: 0 to
+                    // PromoteChunksToIndexedAsync is accurate.
+                    foreach (var failedId in splitResult.FailedChunkIds)
+                    {
+                        await _store.UpdateChunkStatusAsync(
+                            failedId,
+                            Models.ChunkIndexStatus.Failed,
+                            _embeddingProvider.ModelId,
+                            embedding: null,
+                            lastError: "embedding rejected (binary-split isolated)");
+                    }
+
+                    // === All chunks rejected: mark the file itself Failed ===
+                    if (splitResult.Succeeded.Count == 0)
+                    {
+                        await _store.MarkFileAsFailedAsync(
+                            storagePath,
+                            FileIndexStatus.Failed,
+                            $"All {splitResult.FailedChunkIds.Count} chunks rejected by embedding provider",
+                            "embed");
+                        failed++;
+                        failedFiles.Add(new FailedFile(
+                            storagePath, "embedding provider rejected every chunk (binary-split isolated)"));
+                        _logger.LogWarning(
+                            "[Indexing] {File} — all {Count} chunks rejected by embedding provider",
+                            storagePath, splitResult.FailedChunkIds.Count);
+                        logWriter.WriteLine($"[FAILED:embed] {storagePath} — all chunks rejected");
+                        continue;
+                    }
+
+                    // === Commit 2a: Promote the surviving chunks to Indexed ===
+                    var succeededIds = splitResult.Succeeded.Select(s => s.ChunkId).ToArray();
+                    var succeededEmbeddings = splitResult.Succeeded.Select(s => s.Embedding).ToArray();
+                    var degradedFromContextualization = rawCount > 0;
+                    var degradedFromFailedChunks = splitResult.FailedChunkIds.Count > 0;
+                    var finalStatus = degradedFromContextualization || degradedFromFailedChunks
+                        ? FileIndexStatus.Degraded
+                        : FileIndexStatus.Ready;
+
                     await _store.PromoteChunksToIndexedAsync(
                         storagePath,
-                        chunkIds,
-                        embeddings,
+                        succeededIds,
+                        succeededEmbeddings,
                         _embeddingProvider.ModelId,
                         fileStatus: finalStatus,
                         chunksPending: 0,
@@ -307,10 +367,14 @@ public sealed class IndexingEngine
 
                     if (finalStatus == FileIndexStatus.Degraded) degraded++;
                     indexed++;
-                    totalChunks += chunks.Count;
+                    totalChunks += splitResult.Succeeded.Count;
 
+                    var splitNote = splitResult.FailedChunkIds.Count > 0
+                        ? $" ({splitResult.FailedChunkIds.Count} rejected)"
+                        : "";
                     var line = $"[Index] {Path.GetFileName(filePath)} — {chunks.Count} chunks" +
                                (rawCount > 0 ? $" ({rawCount} raw)" : "") +
+                               splitNote +
                                $", total={fileSw.ElapsedMilliseconds}ms";
                     _logger.LogInformation("{Line}", line);
                     logWriter.WriteLine(line);
