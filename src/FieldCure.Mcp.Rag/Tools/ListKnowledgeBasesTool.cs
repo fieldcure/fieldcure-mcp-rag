@@ -15,7 +15,9 @@ public static class ListKnowledgeBasesTool
     [McpServerTool(Name = "list_knowledge_bases", ReadOnly = true, Destructive = false, Idempotent = true),
      Description(
         "Lists all available knowledge bases with their status. " +
-        "Returns ID, name, file/chunk counts, and indexing status for each KB.")]
+        "Returns ID, name, file/chunk counts, indexing status, and schema version for each KB. " +
+        "A KB with is_schema_stale=true still serves search queries correctly; " +
+        "re-indexing triggers automatic schema migration through the exec path.")]
     public static string ListKnowledgeBases(MultiKbContext context)
     {
         var kbs = context.ListKbs();
@@ -29,7 +31,10 @@ public static class ListKnowledgeBasesTool
                 total_files = kb.TotalFiles,
                 total_chunks = kb.TotalChunks,
                 is_indexing = kb.IsIndexing,
+                schema_version = kb.SchemaVersion,
+                is_schema_stale = kb.IsSchemaStale,
             }),
+            current_schema_version = Storage.SqliteVectorStore.TargetUserVersion,
             total = kbs.Count,
         };
 

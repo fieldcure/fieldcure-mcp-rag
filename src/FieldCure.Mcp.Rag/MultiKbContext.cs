@@ -117,6 +117,7 @@ public sealed class MultiKbContext : IDisposable
             var dbPath = Path.Combine(dir, "rag.db");
             int totalFiles = 0, totalChunks = 0;
             bool isIndexing = false;
+            int schemaVersion = 0;
 
             if (File.Exists(dbPath))
             {
@@ -127,6 +128,9 @@ public sealed class MultiKbContext : IDisposable
                     totalChunks = store.GetTotalChunkCountAsync().GetAwaiter().GetResult();
                     var lockInfo = store.GetLockInfo();
                     isIndexing = lockInfo.IsIndexing;
+                    // Piggyback on the already-open store — PRAGMA user_version
+                    // reads from page 0 which is already in memory. Microseconds.
+                    schemaVersion = store.GetUserVersion();
                 }
                 catch (Exception ex)
                 {
@@ -137,7 +141,13 @@ public sealed class MultiKbContext : IDisposable
             }
 
             summaries.Add(new KbSummary(
-                folderName, config.Name, totalFiles, totalChunks, isIndexing));
+                folderName,
+                config.Name,
+                totalFiles,
+                totalChunks,
+                isIndexing,
+                schemaVersion,
+                IsSchemaStale: schemaVersion < SqliteVectorStore.TargetUserVersion));
         }
 
         // Dispose cached instances for deleted KBs
@@ -192,9 +202,27 @@ public sealed class KbInstance : IDisposable
 /// <summary>
 /// Lightweight summary of a knowledge base for listing.
 /// </summary>
+/// <param name="Id">Knowledge base identifier (matches folder name).</param>
+/// <param name="Name">Human-readable name from config.json.</param>
+/// <param name="TotalFiles">Number of indexed source files.</param>
+/// <param name="TotalChunks">Number of indexed chunks.</param>
+/// <param name="IsIndexing">Whether an indexing run is currently in progress.</param>
+/// <param name="SchemaVersion">
+/// Schema version this KB was last tagged with (<c>PRAGMA user_version</c>).
+/// 0 means legacy — created or last indexed before v1.4.1, which is when
+/// user_version tagging was introduced.
+/// </param>
+/// <param name="IsSchemaStale">
+/// True when <see cref="SchemaVersion"/> is below
+/// <see cref="Storage.SqliteVectorStore.TargetUserVersion"/>. Stale KBs still
+/// serve search queries correctly; re-indexing triggers automatic migration
+/// through the exec path.
+/// </param>
 public sealed record KbSummary(
     string Id,
     string Name,
     int TotalFiles,
     int TotalChunks,
-    bool IsIndexing);
+    bool IsIndexing,
+    int SchemaVersion,
+    bool IsSchemaStale);
