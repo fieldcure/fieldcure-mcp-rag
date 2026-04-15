@@ -86,6 +86,47 @@ unlike the stale-schema / stale-prompt cases which require a re-index. The
 host UI can decide whether to surface a "partially degraded" warning
 independently of the "content/prompt changed" signals.
 
+### Partial re-index preserving OCR output
+
+When only the contextualizer or embedding model changes, OCR output is
+structurally unchanged — it is derived from the source document and
+nothing else. The AssistStudio Knowledge Bases page currently handles
+any model change by deleting `rag.db` and running `exec` from scratch,
+which re-runs OCR (20+ minutes for a scanned 600-page PDF) even though
+the result would be bit-identical.
+
+Proposal: add an `exec --partial=<stage>` flag to RAG, where
+`<stage>` is one of:
+
+- `contextualization` — keep `chunks.content` and `file_index`, clear
+  `chunks.enriched` and the `embeddings` table, mark all chunks as a
+  new `PendingContextualization` status, and re-run Stages 3–4. Use
+  case: user switched contextualizer from `gpt-4o-mini` to
+  `claude-haiku-4-6` (or was hit by the kb-3 missing-model scenario).
+- `embedding` — keep `chunks.enriched` and `file_index`, clear the
+  `embeddings` table, mark all chunks as `PendingEmbedding`, and
+  re-run Stage 4 only. Use case: user switched from
+  `text-embedding-3-small` (1536d) to `text-embedding-3-large`
+  (3072d), or wants to try `qwen3-embedding:8b` without re-OCR.
+
+Schema additions:
+
+- `ChunkIndexStatus.PendingContextualization` enum value
+- Engine branch in `IndexingEngine.RunAsync` that respects the new
+  flag and skips Stage 1-2 for files whose chunks are already present
+
+AssistStudio-side change: the `modelChanged` branch in
+`KnowledgeBasesPage.OnSettingsClicked` replaces its "delete rag.db +
+full re-index" path with a per-change-kind call into the new partial
+flags. A single-change (contextualizer OR embedding) becomes a
+minutes-scale operation instead of a full-OCR-scale one.
+
+Complexity is moderate — the schema migration is small and the
+engine loop already persists Commit 1 before Stage 4, so the
+infrastructure mostly exists. The tricky bit is making the new
+"PendingContextualization" status interact cleanly with the
+`ShouldSkipOnHashMatch` helper and the deferred retry pass.
+
 ### Counter delta-vs-state semantics cleanup
 
 See `project_counter_semantics.md` in the AssistStudio memory. The in-memory
