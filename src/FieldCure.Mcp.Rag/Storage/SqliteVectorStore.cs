@@ -745,6 +745,9 @@ public sealed class SqliteVectorStore : IDisposable
 
     /// <summary>
     /// Returns the SHA256 hash stored for a file path, or null if not indexed.
+    /// Prefer <see cref="GetFileStateAsync"/> when the caller needs to
+    /// distinguish "file unchanged and fully indexed" from "file unchanged
+    /// but previously deferred" — this method loses that distinction.
     /// </summary>
     public async Task<string?> GetFileHashAsync(string sourcePath)
     {
@@ -754,6 +757,26 @@ public sealed class SqliteVectorStore : IDisposable
         cmd.Parameters.AddWithValue("@source_path", sourcePath);
         var result = await cmd.ExecuteScalarAsync();
         return result as string;
+    }
+
+    /// <summary>
+    /// Returns the stored hash and status of a file in file_index, or null if
+    /// there is no row for the given path. Used by <c>IndexingEngine</c>'s
+    /// hash-skip logic to decide whether a file needs re-extraction
+    /// (Ready/Degraded with same hash → skip) or should be left alone for the
+    /// deferred retry pass (PartiallyDeferred with same hash → also skip, but
+    /// for a different reason: Commit 1 already persisted the upstream work).
+    /// </summary>
+    public async Task<FileState?> GetFileStateAsync(string sourcePath)
+    {
+        await using var conn = OpenConnection();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT file_hash, status FROM file_index WHERE source_path = @source_path";
+        cmd.Parameters.AddWithValue("@source_path", sourcePath);
+        await using var reader = await cmd.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
+            return null;
+        return new FileState(reader.GetString(0), (FileIndexStatus)reader.GetInt32(1));
     }
 
 

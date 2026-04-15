@@ -20,6 +20,17 @@ public sealed record IndexingResult
     /// <summary>Number of files where embedding failed; previous data preserved.</summary>
     public required int PartiallyDeferred { get; init; }
 
+    /// <summary>
+    /// Number of files that were skipped in this run because the file_index row
+    /// is in <see cref="Models.FileIndexStatus.NeedsAction"/> state — typically
+    /// extraction-stage structural failures (unsupported format, OCR config
+    /// issue, locked file) that the same content cannot recover from. These
+    /// files stay stuck until the user intervenes (re-run with <c>--force</c>
+    /// or replace the file). Non-required so older serialized IndexingResult
+    /// consumers don't break; defaults to 0.
+    /// </summary>
+    public int NeedsAction { get; init; }
+
     /// <summary>List of failed file paths with error messages.</summary>
     public required IReadOnlyList<FailedFile> FailedFiles { get; init; }
 

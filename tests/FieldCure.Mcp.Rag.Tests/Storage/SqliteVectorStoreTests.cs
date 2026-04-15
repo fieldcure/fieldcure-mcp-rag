@@ -1626,6 +1626,238 @@ public class SqliteVectorStoreTests
                 modelId: "m"));
     }
 
+    #endregion
+
+    #region v1.4.2 Task 4 — GetFileStateAsync + ShouldSkipOnHashMatch
+
+    [TestMethod]
+    public async Task GetFileState_NonExistingFile_ReturnsNull()
+    {
+        using var store = new SqliteVectorStore(CreateTempDb());
+        Assert.IsNull(await store.GetFileStateAsync("nope.txt"));
+    }
+
+    [TestMethod]
+    public async Task GetFileState_AfterPersistAsPending_ReturnsPartiallyDeferred()
+    {
+        var dbPath = CreateTempDb();
+        using var store = new SqliteVectorStore(dbPath);
+
+        var chunks = new[] { Chunk("fs_0", "a.pdf", 0, "body") };
+        var infos = new[] { PendingInfo("body") };
+        await store.PersistChunksAsPendingAsync("a.pdf", chunks, infos, PendingFileInfo("hash_a", 1));
+
+        var state = await store.GetFileStateAsync("a.pdf");
+        Assert.IsNotNull(state);
+        Assert.AreEqual("hash_a", state.Hash);
+        Assert.AreEqual(FileIndexStatus.PartiallyDeferred, state.Status);
+    }
+
+    [TestMethod]
+    public async Task GetFileState_AfterPromote_ReturnsReady()
+    {
+        var dbPath = CreateTempDb();
+        using var store = new SqliteVectorStore(dbPath);
+
+        var chunks = new[] { Chunk("fs_1", "b.pdf", 0, "body") };
+        var infos = new[] { PendingInfo("body") };
+        await store.PersistChunksAsPendingAsync("b.pdf", chunks, infos, PendingFileInfo("hash_b", 1));
+        await store.PromoteChunksToIndexedAsync(
+            "b.pdf", new[] { "fs_1" }, new[] { new float[] { 1f } }, "model");
+
+        var state = await store.GetFileStateAsync("b.pdf");
+        Assert.IsNotNull(state);
+        Assert.AreEqual("hash_b", state.Hash);
+        Assert.AreEqual(FileIndexStatus.Ready, state.Status);
+    }
+
+    [TestMethod]
+    public async Task GetFileState_AfterMarkFailed_ReturnsFailedStatus()
+    {
+        // Seed via ReplaceFileChunksAsync (Ready) then MarkFileAsFailedAsync (Failed).
+        var dbPath = CreateTempDb();
+        using var store = new SqliteVectorStore(dbPath);
+
+        await store.ReplaceFileChunksAsync(
+            "c.pdf",
+            new[] { Chunk("fs_2", "c.pdf", 0, "body") },
+            new[] { new float[] { 1f } },
+            "model",
+            new[] { new ChunkWriteInfo { EnrichedText = "body", Status = ChunkIndexStatus.Indexed, IsContextualized = true } },
+            new FileWriteInfo { FileHash = "hash_c", Status = FileIndexStatus.Ready, ChunksRaw = 0, ChunksPending = 0 });
+
+        var updated = await store.MarkFileAsFailedAsync(
+            "c.pdf", FileIndexStatus.Failed, "retry exhausted", "embed");
+        Assert.IsTrue(updated);
+
+        var state = await store.GetFileStateAsync("c.pdf");
+        Assert.IsNotNull(state);
+        Assert.AreEqual("hash_c", state.Hash);
+        Assert.AreEqual(FileIndexStatus.Failed, state.Status);
+    }
+
+    [TestMethod]
+    public void ShouldSkipOnHashMatch_AllCurrentStatusesReturnTrue()
+    {
+        // Every current status should skip on hash match — the helper is
+        // defensive (any future status defaults to false), but for v1.4.2
+        // all five known values qualify.
+        Assert.IsTrue(FileIndexStatus.Ready.ShouldSkipOnHashMatch());
+        Assert.IsTrue(FileIndexStatus.Degraded.ShouldSkipOnHashMatch());
+        Assert.IsTrue(FileIndexStatus.PartiallyDeferred.ShouldSkipOnHashMatch());
+        Assert.IsTrue(FileIndexStatus.Failed.ShouldSkipOnHashMatch());
+        Assert.IsTrue(FileIndexStatus.NeedsAction.ShouldSkipOnHashMatch());
+    }
+
+    [TestMethod]
+    public void ShouldSkipOnHashMatch_UnknownStatusReturnsFalse()
+    {
+        // Bit pattern not in the enum definition — the switch expression's
+        // default arm should return false to force explicit handling of any
+        // future addition.
+        var unknown = (FileIndexStatus)999;
+        Assert.IsFalse(unknown.ShouldSkipOnHashMatch());
+    }
+
+    // Scenario matrix for hash-skip decisions. These mimic what IndexingEngine
+    // does per file: read stored (hash, status), compare against current hash,
+    // and decide skip vs main-loop entry. They are the priority regression
+    // scenarios the user specified — if any of these break, Principle 5
+    // ("PartiallyDeferred must not re-run OCR") or the baseline hash-skip
+    // contract has regressed.
+
+    static bool ShouldSkip(FileState? fileState, string currentHash) =>
+        fileState is not null
+        && fileState.Hash == currentHash
+        && fileState.Status.ShouldSkipOnHashMatch();
+
+    [TestMethod]
+    public async Task HashSkipDecision_PartiallyDeferredSameHash_Skips()
+    {
+        // Principle 5 core. PartiallyDeferred files must never re-enter the
+        // main loop when hash matches, otherwise the 20-minute OCR would
+        // re-run and Commit 1 would delete the PendingEmbedding chunks.
+        using var store = new SqliteVectorStore(CreateTempDb());
+        await store.PersistChunksAsPendingAsync(
+            "p.pdf",
+            new[] { Chunk("pr_a", "p.pdf", 0, "x") },
+            new[] { PendingInfo("x") },
+            PendingFileInfo("hash_p", 1));
+
+        var state = await store.GetFileStateAsync("p.pdf");
+        Assert.IsTrue(ShouldSkip(state, "hash_p"));
+    }
+
+    [TestMethod]
+    public async Task HashSkipDecision_PartiallyDeferredDifferentHash_EntersMainLoop()
+    {
+        // User modified the file. Main loop must enter so Commit 1 can DELETE
+        // the old chunks and INSERT fresh ones.
+        using var store = new SqliteVectorStore(CreateTempDb());
+        await store.PersistChunksAsPendingAsync(
+            "p.pdf",
+            new[] { Chunk("pr_b", "p.pdf", 0, "x") },
+            new[] { PendingInfo("x") },
+            PendingFileInfo("hash_old", 1));
+
+        var state = await store.GetFileStateAsync("p.pdf");
+        Assert.IsFalse(ShouldSkip(state, "hash_new"));
+    }
+
+    [TestMethod]
+    public async Task HashSkipDecision_ReadySameHash_Skips()
+    {
+        // Baseline regression: unchanged fully indexed files must still skip
+        // exactly like they did before Task 4.
+        using var store = new SqliteVectorStore(CreateTempDb());
+        await store.ReplaceFileChunksAsync(
+            "r.txt",
+            new[] { Chunk("rd_0", "r.txt", 0, "y") },
+            new[] { new float[] { 1f } },
+            "model",
+            new[] { new ChunkWriteInfo { EnrichedText = "y", Status = ChunkIndexStatus.Indexed, IsContextualized = true } },
+            new FileWriteInfo { FileHash = "hash_r", Status = FileIndexStatus.Ready, ChunksRaw = 0, ChunksPending = 0 });
+
+        var state = await store.GetFileStateAsync("r.txt");
+        Assert.IsTrue(ShouldSkip(state, "hash_r"));
+    }
+
+    [TestMethod]
+    public async Task HashSkipDecision_NewFile_EntersMainLoop()
+    {
+        // Baseline regression: files with no file_index row must enter the
+        // main loop so they get processed for the first time.
+        using var store = new SqliteVectorStore(CreateTempDb());
+
+        var state = await store.GetFileStateAsync("new.txt");
+        Assert.IsNull(state);
+        Assert.IsFalse(ShouldSkip(state, "any_hash"));
+    }
+
+    [TestMethod]
+    public async Task HashSkipDecision_FailedSameHash_Skips()
+    {
+        // Retry-exhausted files stay skipped until --force. This is the v1.4.3
+        // upgrade path: after a better chunker lands, the user triggers a
+        // force re-run to re-attempt permanently failed files (e.g., 1999 PDF).
+        using var store = new SqliteVectorStore(CreateTempDb());
+        await store.ReplaceFileChunksAsync(
+            "f.pdf",
+            new[] { Chunk("fd_0", "f.pdf", 0, "z") },
+            new[] { new float[] { 1f } },
+            "model",
+            new[] { new ChunkWriteInfo { EnrichedText = "z", Status = ChunkIndexStatus.Indexed, IsContextualized = true } },
+            new FileWriteInfo { FileHash = "hash_f", Status = FileIndexStatus.Ready, ChunksRaw = 0, ChunksPending = 0 });
+
+        await store.MarkFileAsFailedAsync("f.pdf", FileIndexStatus.Failed, "retry exhausted", "embed");
+
+        var state = await store.GetFileStateAsync("f.pdf");
+        Assert.IsTrue(ShouldSkip(state, "hash_f"));
+    }
+
+    [TestMethod]
+    public async Task HashSkipDecision_DegradedSameHash_Skips()
+    {
+        // Degraded = indexed without contextualization. Treated as "indexed
+        // enough" for hash-skip purposes — same content should not trigger
+        // re-running the LLM when previous run already produced embeddings.
+        using var store = new SqliteVectorStore(CreateTempDb());
+        await store.ReplaceFileChunksAsync(
+            "d.md",
+            new[] { Chunk("dg_0", "d.md", 0, "raw content") },
+            new[] { new float[] { 1f } },
+            "model",
+            new[] { new ChunkWriteInfo { EnrichedText = "raw content", Status = ChunkIndexStatus.Indexed, IsContextualized = false } },
+            new FileWriteInfo { FileHash = "hash_d", Status = FileIndexStatus.Degraded, ChunksRaw = 1, ChunksPending = 0 });
+
+        var state = await store.GetFileStateAsync("d.md");
+        Assert.IsTrue(ShouldSkip(state, "hash_d"));
+    }
+
+    [TestMethod]
+    public async Task HashSkipDecision_NeedsActionSameHash_Skips()
+    {
+        // NeedsAction files stay skipped (separate counter in IndexingEngine).
+        using var store = new SqliteVectorStore(CreateTempDb());
+        // Seed a file_index row first via Ready, then mark as NeedsAction.
+        await store.ReplaceFileChunksAsync(
+            "na.pdf",
+            new[] { Chunk("na_0", "na.pdf", 0, "x") },
+            new[] { new float[] { 1f } },
+            "model",
+            new[] { new ChunkWriteInfo { EnrichedText = "x", Status = ChunkIndexStatus.Indexed, IsContextualized = true } },
+            new FileWriteInfo { FileHash = "hash_na", Status = FileIndexStatus.Ready, ChunksRaw = 0, ChunksPending = 0 });
+
+        await store.MarkFileAsFailedAsync("na.pdf", FileIndexStatus.NeedsAction, "unsupported", "extract");
+
+        var state = await store.GetFileStateAsync("na.pdf");
+        Assert.IsTrue(ShouldSkip(state, "hash_na"));
+    }
+
+    #endregion
+
+    #region v1.4.2 Task 1/2 end-to-end
+
     [TestMethod]
     public async Task PersistThenPromote_VectorSearchFindsPromotedChunks()
     {

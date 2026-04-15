@@ -107,7 +107,8 @@ public sealed class IndexingEngine
                 _logger.LogInformation("Removed {Count} orphaned file entries.", removed);
 
             // Process files
-            var (indexed, skipped, failed, degraded, partiallyDeferred, totalChunks) = (0, 0, 0, 0, 0, 0);
+            var (indexed, skipped, failed, degraded, partiallyDeferred, needsAction, totalChunks) =
+                (0, 0, 0, 0, 0, 0, 0);
             var failedFiles = new List<FailedFile>();
             var providerHealth = ProviderHealth.Ok;
             var totalSw = Stopwatch.StartNew();
@@ -133,6 +134,7 @@ public sealed class IndexingEngine
                     {
                         Indexed = indexed, Skipped = skipped, Failed = failed,
                         Degraded = degraded, PartiallyDeferred = partiallyDeferred,
+                        NeedsAction = needsAction,
                         FailedFiles = failedFiles, Duration = totalSw.Elapsed, ExitCode = 2,
                     };
                 }
@@ -147,10 +149,34 @@ public sealed class IndexingEngine
 
                     if (!force)
                     {
-                        var storedHash = await _store.GetFileHashAsync(storagePath);
-                        if (storedHash == hash)
+                        // Hash-skip with v1.4.2 status awareness. Skip whenever the
+                        // file_index row exists, hash matches, AND the status tells
+                        // us the file should not re-enter the main loop — the
+                        // decision lives in FileIndexStatusExtensions so every
+                        // status is handled in one place.
+                        //
+                        // NeedsAction is skipped but reported through a dedicated
+                        // counter so operators can see how many files are stuck on
+                        // an extraction-stage structural problem. Failed uses the
+                        // plain skipped counter because that bucket already means
+                        // "waiting for user action" (retry exhausted).
+                        //
+                        // The Principle 5 guard lives here too: PartiallyDeferred
+                        // files must never re-enter the main loop because Commit 1
+                        // has already persisted their OCR/contextualization output
+                        // and the deferred retry second pass will handle the embed
+                        // stage. Re-entering would DELETE the PendingEmbedding
+                        // chunks (via Commit 1's source-path purge) and waste
+                        // 20+ minutes of OCR.
+                        var fileState = await _store.GetFileStateAsync(storagePath);
+                        if (fileState is not null
+                            && fileState.Hash == hash
+                            && fileState.Status.ShouldSkipOnHashMatch())
                         {
-                            skipped++;
+                            if (fileState.Status == FileIndexStatus.NeedsAction)
+                                needsAction++;
+                            else
+                                skipped++;
                             continue;
                         }
                     }
@@ -369,6 +395,7 @@ public sealed class IndexingEngine
 
             var summary = $"[Index] Done — indexed={indexed} skipped={skipped} failed={failed} " +
                           $"degraded={degraded} deferred={partiallyDeferred} " +
+                          (needsAction > 0 ? $"needsAction={needsAction} " : "") +
                           $"removed={removed} chunks={totalChunks} elapsed={totalSw.ElapsedMilliseconds}ms";
             _logger.LogInformation("{Summary}", summary);
             logWriter.WriteLine(summary);
@@ -381,6 +408,7 @@ public sealed class IndexingEngine
             {
                 Indexed = indexed, Skipped = skipped, Failed = failed,
                 Degraded = degraded, PartiallyDeferred = partiallyDeferred,
+                NeedsAction = needsAction,
                 FailedFiles = failedFiles, Duration = duration, ExitCode = exitCode,
             };
         }
