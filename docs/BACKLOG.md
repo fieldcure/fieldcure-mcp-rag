@@ -127,6 +127,39 @@ infrastructure mostly exists. The tricky bit is making the new
 "PendingContextualization" status interact cleanly with the
 `ShouldSkipOnHashMatch` helper and the deferred retry pass.
 
+### `unload_kb` MCP tool for deletion unblocking
+
+The AssistStudio Knowledge Bases page cannot cleanly delete a KB while
+the serve process is holding a read-only handle to its `rag.db`. The
+exec process can be cancelled via the cancel-file path, but serve
+caches KB instances inside `MultiKbContext` and keeps the SQLite
+connection open across search calls. On Windows this blocks
+`Directory.Delete` even for read-only handles.
+
+Current host-side mitigation: `KnowledgeBaseStore.Delete` does a
+retry loop (3 seconds total) and surfaces a "files still in use"
+dialog if the lock outlasts it. Works for exec-only locks; serve
+locks require the user to wait for KB TTL eviction or restart the app.
+
+Proposal: expose an MCP tool on serve — `unload_kb` taking a
+`kb_id` — that evicts the cached instance from `MultiKbContext`,
+disposes the underlying `SqliteVectorStore`, and confirms release.
+AssistStudio calls it right before `KnowledgeBaseStore.Delete` so
+the sequence is:
+
+1. UI: user confirms delete
+2. Host: cancel exec (existing)
+3. Host: invoke `unload_kb` on serve (new)
+4. Host: `Directory.Delete` — succeeds on the first attempt
+5. Serve: next search for any other KB continues unaffected; a
+   subsequent call against the deleted KB returns a clean "KB not
+   found" error
+
+The tool is idempotent and side-effect-free on wrong ids, so
+hosts can call it unconditionally. Serve's existing lazy-load
+path reopens the KB on the next search call, so a "phantom
+unload" mid-query is recoverable without restart.
+
 ### Counter delta-vs-state semantics cleanup
 
 See `project_counter_semantics.md` in the AssistStudio memory. The in-memory
