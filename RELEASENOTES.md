@@ -1,5 +1,36 @@
 ﻿# Release Notes
 
+## v1.4.1 (2026-04-15)
+
+### Fixed
+
+- **`MultiKbContext.ListKbs()` loose folder scanning** — previously any subfolder under the base path with a `config.json` was accepted as a KB, so user backup folders (e.g., `<kb-id>.backup-<ts>`) showed up as duplicate KBs in `list_knowledge_bases` and the host UI. Four guards are now applied per folder in order: (1) prefix filter — folders starting with `.` or `_` are skipped silently, (2) `config.json` existence, (3) `config.json` parseability (parse failures log a warning instead of being swallowed), (4) `config.Id` ↔ folder name match using `OrdinalIgnoreCase` (mismatches are the copy-backup signature and log a warning before skipping). Per-KB stats reads from `rag.db` are also wrapped — a corrupt DB no longer kills the entire listing, the affected KB just reports zeros with a warning.
+
+### Added
+
+- **`PRAGMA user_version` schema sentinel** — schema state is now recorded in SQLite's built-in `user_version` header field instead of being inferred from `PRAGMA table_info` alone. `SqliteVectorStore.TargetUserVersion = 1` is the target, written at the end of `InitializeSchema()` (which only runs when `readOnly == false`, so the "serve = reader, exec = writer" invariant is preserved). Legacy databases created before v1.4.1 report `user_version = 0` regardless of which actual schema columns they contain.
+- **`SqliteVectorStore.GetUserVersion()`** — instance method that reads `user_version` from the store's connection. Cheap (microseconds) — `PRAGMA user_version` reads from page 0 which is already in memory after connection open. Prefer this when the caller already holds a store instance.
+- **`SqliteVectorStore.ReadUserVersion(dbPath)`** — static helper that opens the database read-only, calls `GetUserVersion()`, and disposes. For diagnostic tools and tests that don't already have a store.
+- **`KbSummary.SchemaVersion` / `KbSummary.IsSchemaStale`** — `list_knowledge_bases` now surfaces the schema version each KB was last tagged with. `IsSchemaStale == true` means the KB was indexed before v1.4.1 (or before whatever future version the code is built against). Stale KBs still serve search queries correctly; re-indexing triggers automatic migration through the exec path.
+- **`list_knowledge_bases` response extension** — each KB entry now includes `schema_version` and `is_schema_stale` fields, and the top-level response carries `current_schema_version` so consumers can compare without hardcoding the target.
+- **`check_changes` schema staleness fields** — the response now includes `is_schema_stale`, `kb_schema_version`, and `current_schema_version`. `is_schema_stale` is computed as `kb_schema_version < current_schema_version`. Tool description updated to explain what a stale KB means and that re-indexing triggers automatic migration.
+
+### Changed
+
+- **`check_changes.is_clean` semantics (soft breaking)** — `is_clean` now also requires `!is_schema_stale`. The first time a host running v1.4.1 or later calls `check_changes` against a KB that was indexed under v1.4.0 or earlier, the response will be `is_clean: false`, `is_schema_stale: true`, `kb_schema_version: 0` even when no files have changed. The fix is a single re-index per KB (the same remedy as for `is_prompt_stale`), which writes `user_version = 1` through the exec path's `InitializeSchema()`. AssistStudio is effectively the only consumer; host-side message branching will be updated in a follow-up release.
+- **`MultiKbContext` constructor** — now accepts an optional `ILogger<MultiKbContext>` parameter (defaults to `NullLogger` when omitted, so existing tests and direct instantiation keep working). `Program.cs` serve mode registers the context through the DI container so the host's logging pipeline supplies the logger; the explicit `Dispose()` at shutdown is no longer needed because the host disposes singletons automatically.
+- **`KbSummary` record** — new `SchemaVersion` and `IsSchemaStale` members. Positional record so any direct constructor call outside this assembly needs to supply the new values; in-tree callers are all updated.
+
+### Tests
+
+- 19 new unit and integration tests (total 114 → 133) covering the `user_version` sentinel round-trip, the read-only open invariant ("serve = reader" in test form), all four `ListKbs` guards (including the case-insensitive id match), and end-to-end `check_changes` response shape for both clean tagged and legacy untagged KBs. The integration tests exercise the full `CheckChangesTool → MultiKbContext → SqliteVectorStore` chain with real temp-folder fixtures, so the new JSON fields are validated at the wire level rather than only in isolation.
+
+### Known Issues
+
+- **Deferred embedding retry for first-indexed files is not persisted** — v1.4.0 introduced stage-level failure handling with a `PartiallyDeferred` counter and the infrastructure for retrying chunks whose embedding failed (`ChunkIndexStatus.PendingEmbedding`, `GetPendingEmbeddingChunksAsync`, `UpdateChunkStatusAsync`). That path works correctly when an *already indexed* file fails on re-indexing — `ReplaceFileChunksAsync`'s transaction rolls back and previous chunks are preserved. But when a *newly added* file fails embedding on its first pass, `IndexingEngine` catches `EmbeddingException` and calls `MarkFileAsFailedAsync`, which is an `UPDATE` against `file_index` and therefore a no-op when no prior row exists — the extracted text and contextualized chunks are silently dropped. The `last_partially_deferred_count` counter is still incremented, so the log and metadata will say "1 deferred" while the database contains nothing for that file. Result: the file is invisible to search and will be retried from scratch on every subsequent exec, hitting the same error. Tracked separately; will be addressed in a later release by (a) extending `IndexingEngine` to persist chunks with `PendingEmbedding` status when embedding fails and (b) wiring `GetPendingEmbeddingChunksAsync` / `UpdateChunkStatusAsync` into a deferred retry pass.
+
+---
+
 ## v1.4.0 (2026-04-14)
 
 ### Added

@@ -1,4 +1,4 @@
-{
+﻿{
   "$schema": "https://modelcontextprotocol.io/schemas/draft/2025-07-09/server.json",
   "name": "io.github.fieldcure/rag",
   "description": "MCP RAG server with hybrid BM25 + vector search, multi-KB support, and AI-powered chunk contextualization.",
@@ -6,7 +6,7 @@
     {
       "registry_name": "nuget",
       "name": "FieldCure.Mcp.Rag",
-      "version": "1.4.0",
+      "version": "1.4.1",
       "runtime": "dotnet",
       "source": "DotnetTool",
       "command": "fieldcure-mcp-rag",
@@ -18,6 +18,6 @@
     "source": "github"
   },
   "version_detail": {
-    "version": "1.4.0"
+    "version": "1.4.1"
   }
 }
