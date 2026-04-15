@@ -12,6 +12,15 @@ namespace FieldCure.Mcp.Rag.Storage;
 /// </summary>
 public sealed class SqliteVectorStore : IDisposable
 {
+    /// <summary>
+    /// Target schema version for this code release. Bumped whenever a breaking
+    /// schema change is introduced. Independent of release version (v1.4.x).
+    /// Written to <c>PRAGMA user_version</c> at the end of <see cref="InitializeSchema"/>.
+    /// Databases created before v1.4.1 report 0 (SQLite default), regardless
+    /// of which actual schema columns they contain.
+    /// </summary>
+    public const int TargetUserVersion = 1;
+
     readonly string _connectionString;
 
     public SqliteVectorStore(string dbPath, bool readOnly = false)
@@ -89,6 +98,49 @@ public sealed class SqliteVectorStore : IDisposable
         // Migrations
         MigrateEnrichedColumn(conn);
         MigrateV04StatusColumns(conn);
+
+        // Tag the database with the current schema version. This is the only
+        // place user_version is written. Safe because InitializeSchema() runs
+        // only when readOnly == false (constructor guard).
+        using var versionCmd = conn.CreateCommand();
+        versionCmd.CommandText = $"PRAGMA user_version = {TargetUserVersion};";
+        versionCmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Reads the schema version stored in this database's <c>PRAGMA user_version</c>
+    /// header field. Cheap (microseconds) — reads from page 0, which is already in
+    /// memory after connection open. Never triggers migration.
+    /// Prefer this method when the caller already has a store instance; use
+    /// <see cref="ReadUserVersion"/> otherwise.
+    /// </summary>
+    /// <returns>
+    /// Current user_version value. Returns 0 for legacy databases that were
+    /// never tagged (all KBs created before v1.4.1).
+    /// </returns>
+    public int GetUserVersion()
+    {
+        using var conn = OpenConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "PRAGMA user_version;";
+        var result = cmd.ExecuteScalar();
+        return Convert.ToInt32(result ?? 0);
+    }
+
+    /// <summary>
+    /// Static helper for callers that do not already have a store instance
+    /// (diagnostic tools, tests). Opens the database read-only, reads
+    /// <c>PRAGMA user_version</c>, and disposes. Always opens read-only —
+    /// never triggers migration.
+    /// </summary>
+    /// <param name="dbPath">Absolute path to the KB's SQLite file.</param>
+    /// <returns>
+    /// Current user_version value. Returns 0 for legacy databases.
+    /// </returns>
+    public static int ReadUserVersion(string dbPath)
+    {
+        using var store = new SqliteVectorStore(dbPath, readOnly: true);
+        return store.GetUserVersion();
     }
 
     #region Schema Migrations
