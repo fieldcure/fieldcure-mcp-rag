@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>1.4.2</Version>
+    <Version>1.5.0</Version>
     <PackageId>FieldCure.Mcp.Rag</PackageId>
 
     <Authors>Jong Hyun Kim</Authors>
@@ -20,7 +20,7 @@
     <RepositoryUrl>https://github.com/fieldcure/fieldcure-mcp-rag</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>mcp;mcp-server;ai;dotnet;rag;embedding;vector-search;knowledge-base;bm25</PackageTags>
-    <PackageReleaseNotes>v1.4.2: 2-commit indexing pipeline, binary-split per-chunk failure isolation, automatic deferred retry pass, and --verbose flag. Fixes v1.4.0 silent data loss on first-time embedding failure.</PackageReleaseNotes>
+    <PackageReleaseNotes>v1.5.0: Partial re-index (--partial=contextualization|embedding), chunker pre-validation, search_mode parameter, unload_kb tool, embedding batch size optimization, contextualization diagnostics, and counter semantics cleanup.</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>Logo.png</PackageIcon>
 

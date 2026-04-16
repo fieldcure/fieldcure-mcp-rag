@@ -275,7 +275,7 @@ table.
 | **BM25-only** | content or enriched | **Absent** | BM25 full-text only | `NullEmbeddingProvider` configured |
 | **Stale** | any | Present (model=Y, Y≠current) | Vector search works but quality may be poor | Embedding model changed in config |
 
-### Detection (v1.4)
+### Detection (v1.5)
 
 Since v1.4, chunk state is tracked explicitly via the `status` and
 `is_contextualized` columns in the `chunks` table:
@@ -284,8 +284,10 @@ Since v1.4, chunk state is tracked explicitly via the `status` and
   inference from `enriched = content`.
 - **PendingEmbedding**: `chunks.status = 2` — queryable via
   `GetPendingEmbeddingChunksAsync()` for deferred retry.
+- **PendingContextualization**: `chunks.status = 5` (v1.5) — set by
+  `--partial=contextualization`, processed by `RunPartialContextualizationPassAsync`.
 - **Stale**: Compare `embeddings.model` against `config.Embedding.Model`.
-  Currently no automatic re-index trigger — requires `--force` flag.
+  Addressed in v1.5 via `--partial=embedding` which re-embeds all chunks.
 
 ---
 
@@ -310,23 +312,16 @@ pipeline stage where the error occurred.
 SQLite transaction. Embedding failures are caught before the transaction
 and leave previous data intact via `MarkFileAsFailedAsync`.
 
-## 7. Remaining Issues / Future Work
+## 7. Resolved Issues (v1.5)
 
-### No retry logic within a single run
+### ~~No retry logic within a single run~~
 
-Failed files are not retried within the same indexing run. Recovery relies
-on re-running the indexer (files with unchanged hashes are skipped unless
-`--force` is set). The `GetPendingEmbeddingChunksAsync` and
-`UpdateChunkStatusAsync` APIs are ready for a deferred retry worker.
+**Resolved in v1.4.2.** `RunDeferredRetryPassAsync` automatically retries
+`PendingEmbedding` chunks at the end of every exec run.
 
-- [ ] Implement a retry worker that processes `PendingEmbedding` chunks
-  when the embedding provider becomes available again
+### ~~Stale embedding detection~~
 
-### Stale embedding detection
-
-When the embedding model changes in `config.json`, existing chunks retain
-their old vectors. The `embeddings.model` column enables detection, but no
-automatic re-index is triggered.
-
-- [ ] On config change: compare stored model ID vs configured model; if
-  different, trigger `--force` re-index or warn the user
+**Resolved in v1.5.0.** `--partial=embedding` re-embeds all chunks when
+the embedding model changes, without re-running OCR. AssistStudio's
+Settings page automatically selects the correct partial flag based on
+which model changed.

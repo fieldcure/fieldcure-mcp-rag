@@ -1,5 +1,35 @@
 ﻿# Release Notes
 
+## v1.5.0 (2026-04-16)
+
+### Added
+
+- **Partial re-index (`--partial=contextualization|embedding`)** — when only the contextualizer or embedding model changes, OCR/chunking results are preserved and only downstream stages re-run. Scanned 600-page PDF: full re-index 20+ min, partial embedding ~2 min. Includes cancel-resume support (interrupted partial runs resume from remaining pending chunks) and cross-kind safety (mismatched partial flag on interrupted state produces a clear error with `--force` escape).
+- **`search_mode` parameter on `search_documents`** — `"auto"` (default, hybrid when possible), `"bm25"` (keyword-only, no embedding), `"vector"` (semantic-only). Tool description instructs AI models not to override the default. `"vector"` with no embedding provider throws `InvalidOperationException`.
+- **`unload_kb` tool** — evicts a cached KB instance and releases its SQLite connection so the host can delete KB files without retry loops. Idempotent, no-op if not loaded.
+- **Chunker pre-validation** — re-splits any chunk exceeding a conservative character-based upper bound (default 4,000 chars, configurable via `embedding.max_chunk_chars`) during chunking, before embedding is attempted. Uses sentence boundaries when possible, hard cut otherwise. Binary-split fallback remains as safety net.
+- **Embedding batch size resolution** — static lookup table maps common provider/model combinations to safe initial batch sizes (e.g., `ollama:qwen3-embedding:8b` = 64). Configurable via `embedding.batch_size`. Eliminates unnecessary first-call failures and binary-split activations. KB-3 (1025 chunks, Ollama): 210s with binary-split → 131s without.
+- **Contextualization diagnostics** — multi-line log format when contextualization fails (`failed: N/M, falling back to raw`), `chunks_contextualized` column in `file_index` (schema v2), `total_chunks_contextualized` / `total_chunks_raw` / `files_contextualization_degraded` in `get_index_info`, and `is_contextualization_degraded` flag in `check_changes` (not folded into `is_clean`).
+- **`PendingContextualization` chunk status (5)** — tracks chunks that need re-contextualization during partial re-index.
+- **`GetPendingChunkCountsAsync`** — efficient kind-aware query for partial resume detection.
+
+### Changed
+
+- **Counter semantics cleanup** — in-memory counters split into per-run deltas (`indexedThisRun`, `skippedThisRun`) and DB state snapshots (`GetStateCountersAsync`). Summary log now shows two lines: `Run: indexed=N skipped=M ...` and `State: failed=N degraded=M ...`. Fixes misleading `degraded=0` on subsequent runs.
+- **`IndexingEngine.RunAsync` signature** — now accepts optional `string? partial` parameter.
+- **`EmbedWithBinarySplitAsync`** — accepts optional `batchSize` parameter; splits input into batch-sized windows before attempting API calls.
+- **Cancel file cleanup** — moved to `Program.cs` top-level `finally` block for guaranteed cleanup regardless of exit path.
+- **Schema version bump** — `TargetUserVersion` 1 → 2.
+
+### config.json additions
+
+| Field | Section | Description |
+|-------|---------|-------------|
+| `max_chunk_chars` | `embedding` | Max chars per chunk (default: 4000) |
+| `batch_size` | `embedding` | Max chunks per API call (default: table lookup) |
+
+---
+
 ## v1.4.2 (2026-04-15)
 
 ### Fixed
@@ -26,7 +56,7 @@
 
 ### Known Limitations
 
-- **Single chunk exceeding the embedding model's per-input token limit is marked `Failed`, not rechunked** — the binary split isolates the offending chunk and the rest of the file is indexed as `Degraded`, which is the correct outcome for a hard provider limit. But a chunk larger than the model's per-input cap can never succeed, and the current chunker does not pre-validate chunk token counts against the embedding model's limit before committing them to the pipeline. A v1.4.3 pre-pass will re-split any chunk whose estimated token count exceeds a per-model ceiling so these cases never reach Stage 4 in the first place. Until then, the file stays in `Degraded` state with one (or more) chunks in `Failed`, and the user can accept the partial coverage or replace the offending document.
+- **~~Single chunk exceeding the embedding model's per-input token limit is marked `Failed`, not rechunked~~** — resolved in v1.5.0. `TextChunker` now enforces a `maxChars` upper bound (default 4000) that pre-splits oversized chunks before they reach Stage 4.
 
 ### Tests
 

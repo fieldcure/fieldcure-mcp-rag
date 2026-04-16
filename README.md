@@ -11,11 +11,11 @@ Built with C# and the official [MCP C# SDK](https://github.com/modelcontextproto
 
 ```
 fieldcure-mcp-rag
-├── exec  --path <kb-path> [--force]   # Headless indexing (single KB)
+├── exec  --path <kb-path> [--force] [--partial contextualization|embedding]
 └── serve --base-path <path>           # Multi-KB MCP search server (stdio)
 ```
 
-- **exec** — scans source folders, chunks documents, contextualizes with AI, embeds, stores in SQLite. Runs as a detached process.
+- **exec** — scans source folders, chunks documents, contextualizes with AI, embeds, stores in SQLite. Runs as a detached process. `--partial` re-runs only downstream stages when models change, preserving OCR output.
 - **serve** — read-only MCP server serving all knowledge bases under the base path. Single process handles multiple KBs via `kb_id` parameter. Can run while exec is indexing (SQLite WAL).
 
 ## Features
@@ -134,8 +134,9 @@ The `check_changes` tool reports `is_schema_stale: true` when a re-index would t
 Indexing emits a structured timing log per `exec` run at `%LOCALAPPDATA%\FieldCure\Mcp.Rag\{kb-id}\index_timing.log`:
 
 ```
---- 2026-04-15 17:31:39 force=False files=12 ---
-[Index] Done — indexed=0 skipped=11 failed=0 degraded=1 deferred=0 removed=0 chunks=0 elapsed=85ms
+--- 2026-04-16 17:31:39 force=False files=12 ---
+Run:    indexed=0 skipped=11 removed=0 chunks=0 elapsed=85ms
+State:  failed=0 degraded=1 deferred=0 needsAction=0
 ```
 
 Binary-split events are logged at Info level (lifecycle: `start`/`done`) and Warning level (terminal per-chunk failures). Per-depth trace requires `--verbose` flag:
@@ -266,6 +267,8 @@ Add to `claude_desktop_config.json`:
 | `contextualizer.apiKeyPreset` | PasswordVault preset name (e.g., `"Claude"`) |
 | `contextualizer.baseUrl` | API base URL override (null = provider default) |
 | `embedding.*` | Same structure as contextualizer |
+| `embedding.maxChunkChars` | Max chars per chunk before pre-split (default: 4000) |
+| `embedding.batchSize` | Max chunks per embedding API call (default: auto from provider table) |
 | `systemPrompt` | Custom system prompt for contextualization (null = built-in default) |
 
 ## Tools
@@ -275,18 +278,23 @@ All tools (except `list_knowledge_bases`) require a `kb_id` parameter to specify
 | Tool | Description |
 |------|-------------|
 | `list_knowledge_bases` | List all available KBs with status (file/chunk counts, indexing status) |
-| `search_documents` | Hybrid BM25 + vector search with RRF fusion |
+| `search_documents` | Hybrid BM25 + vector search with RRF. Supports `search_mode`: `auto`, `bm25`, `vector` |
 | `get_document_chunk` | Retrieve full content of a specific chunk by ID |
-| `get_index_info` | Index metadata (file/chunk counts, last indexed timestamp, prompt config, stale detection, indexing lock status). *Primarily used by host applications such as AssistStudio to display KB status.* |
-| `check_changes` | Dry-run filesystem scan comparing source files against the index. Returns added/modified/deleted/failed file paths and counts, plus `is_prompt_stale` and `is_schema_stale` flags. *Primarily used by host applications to surface re-indexing prompts.* |
+| `get_index_info` | Index metadata including contextualization health stats. *Internal — host application use* |
+| `check_changes` | Dry-run filesystem scan with `is_contextualization_degraded` flag. *Internal — host application use* |
+| `unload_kb` | Release SQLite handles for a KB before deletion. *Internal — host application use* |
 
 ### Search Modes
 
-| Mode | When | Description |
-|------|------|-------------|
-| `hybrid` | Embedding configured + query >= 3 chars | BM25 keyword + vector semantic, fused via RRF |
-| `bm25_only` | No embedding configured | FTS5 trigram keyword search only |
-| `vector_only` | Query tokens all < 3 chars | Cosine similarity search only |
+The `search_mode` parameter (default `auto`) controls the search strategy:
+
+| `search_mode` | Behavior |
+|---------------|----------|
+| `auto` | Hybrid when embedding available, else BM25. Recommended |
+| `bm25` | Keyword-only (FTS5). No embedding call |
+| `vector` | Semantic-only. Errors if no embedding provider |
+
+When `auto`, the actual mode depends on provider availability and query tokens.
 
 ### Supported Formats
 
@@ -324,20 +332,23 @@ src/FieldCure.Mcp.Rag/
 ├── Embedding/
 │   ├── IEmbeddingProvider.cs
 │   ├── OpenAiCompatibleEmbeddingProvider.cs
-│   └── NullEmbeddingProvider.cs
+│   ├── NullEmbeddingProvider.cs
+│   └── EmbeddingBatchSizes.cs  # Known-good batch sizes per provider/model
 ├── Storage/
 │   └── SqliteVectorStore.cs    # SQLite + FTS5 BM25 + SIMD cosine similarity
 ├── Search/
 │   ├── HybridSearcher.cs       # BM25 + Vector → RRF orchestration
 │   └── RrfFusion.cs            # Reciprocal Rank Fusion (k=60)
 ├── Chunking/
-│   └── TextChunker.cs          # Korean/English sentence-aware chunking
+│   ├── TextChunker.cs          # Korean/English sentence-aware chunking
+│   └── ChunkLimits.cs          # Character-based chunk size bounds
 ├── Tools/
 │   ├── ListKnowledgeBasesTool.cs # KB listing
 │   ├── SearchDocumentsTool.cs    # Hybrid search with mode selection
 │   ├── GetDocumentChunkTool.cs   # Chunk retrieval
 │   ├── GetIndexInfoTool.cs       # Index metadata
-│   └── CheckChangesTool.cs      # Dry-run file change detection
+│   ├── CheckChangesTool.cs       # Dry-run file change detection
+│   └── UnloadKbTool.cs          # KB handle release for deletion
 └── Models/
     ├── DocumentChunk.cs
     ├── SearchResult.cs
