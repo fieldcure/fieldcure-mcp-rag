@@ -722,6 +722,31 @@ public sealed class SqliteVectorStore : IDisposable
     }
 
     /// <summary>
+    /// Returns counts of pending chunks by kind for partial resume detection.
+    /// </summary>
+    public async Task<(int Contextualization, int Embedding, int Total)> GetPendingChunkCountsAsync()
+    {
+        await using var conn = OpenConnection();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT
+                COALESCE(SUM(CASE WHEN status = @ctx THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN status = @emb THEN 1 ELSE 0 END), 0)
+            FROM chunks
+            """;
+        cmd.Parameters.AddWithValue("@ctx", (int)Models.ChunkIndexStatus.PendingContextualization);
+        cmd.Parameters.AddWithValue("@emb", (int)Models.ChunkIndexStatus.PendingEmbedding);
+        await using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            var ctx = reader.GetInt32(0);
+            var emb = reader.GetInt32(1);
+            return (ctx, emb, ctx + emb);
+        }
+        return (0, 0, 0);
+    }
+
+    /// <summary>
     /// Returns chunks in <see cref="Models.ChunkIndexStatus.PendingContextualization"/> state,
     /// grouped by source file for partial re-index.
     /// </summary>

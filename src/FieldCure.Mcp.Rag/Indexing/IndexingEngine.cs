@@ -96,16 +96,59 @@ public sealed class IndexingEngine
                 await _store.SetMetadataAsync(
                     ChunkContextualizerHelper.MetaKeySystemPrompt, _config.SystemPrompt);
 
-            // Partial mode: prepare DB (clear downstream artifacts, mark pending)
-            if (partial == "contextualization")
+            // Partial mode: decide whether to prepare (fresh) or resume (interrupted).
+            if (partial is not null)
             {
-                _logger.LogInformation("[Partial] Preparing re-contextualization — preserving OCR output.");
-                await _store.PreparePartialContextualizationAsync();
-            }
-            else if (partial == "embedding")
-            {
-                _logger.LogInformation("[Partial] Preparing re-embedding — preserving contextualized text.");
-                await _store.PreparePartialEmbeddingAsync();
+                var pending = await _store.GetPendingChunkCountsAsync();
+
+                if (pending.Total == 0)
+                {
+                    // Fresh partial — no prior interrupted state
+                    if (partial == "contextualization")
+                    {
+                        _logger.LogInformation("[Partial] Preparing re-contextualization — preserving OCR output.");
+                        await _store.PreparePartialContextualizationAsync();
+                    }
+                    else
+                    {
+                        _logger.LogInformation("[Partial] Preparing re-embedding — preserving contextualized text.");
+                        await _store.PreparePartialEmbeddingAsync();
+                    }
+                }
+                else
+                {
+                    // Pending chunks exist — verify they match the requested partial kind
+                    var matchesCurrent = partial switch
+                    {
+                        "contextualization" => pending.Contextualization > 0,
+                        "embedding" => pending.Embedding > 0 && pending.Contextualization == 0,
+                        _ => false,
+                    };
+
+                    if (matchesCurrent)
+                    {
+                        _logger.LogInformation(
+                            "[Partial] Resuming — {Ctx} PendingContextualization, {Emb} PendingEmbedding chunks from interrupted run.",
+                            pending.Contextualization, pending.Embedding);
+                    }
+                    else if (force)
+                    {
+                        _logger.LogWarning(
+                            "[Partial] --force: resetting pending state ({Ctx} ctx, {Emb} emb) and re-preparing.",
+                            pending.Contextualization, pending.Embedding);
+                        if (partial == "contextualization")
+                            await _store.PreparePartialContextualizationAsync();
+                        else
+                            await _store.PreparePartialEmbeddingAsync();
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException(
+                            $"Cannot start --partial={partial}: DB has {pending.Contextualization} PendingContextualization " +
+                            $"and {pending.Embedding} PendingEmbedding chunks from a previous run. " +
+                            $"Complete with the matching --partial flag, or add --force to reset.");
+                    }
+                }
             }
 
             // Collect files from all source paths
@@ -151,7 +194,6 @@ public sealed class IndexingEngine
                 {
                     _logger.LogInformation("Cancel file detected. Stopping after {Count} files.", fileIndex);
                     _store.ReleaseLock();
-                    CleanCancelFile();
 
                     totalSw.Stop();
                     var cancelState = await _store.GetStateCountersAsync();

@@ -136,6 +136,12 @@ async Task<int> RunExecAsync(string[] args)
     }
     finally
     {
+        // Cancel file must not linger into the next run regardless of how
+        // this run ended (normal, cancel, or exception).
+        var cancelPath = Path.Combine(kbPath, "cancel");
+        if (File.Exists(cancelPath))
+            try { File.Delete(cancelPath); } catch { /* best-effort */ }
+
         store.Dispose();
     }
 }
