@@ -27,7 +27,8 @@ public sealed class HybridSearcher(SqliteVectorStore store, IEmbeddingProvider e
         {
             SearchMode.Bm25Only => SearchMode.Bm25Only,
             SearchMode.VectorOnly when isVectorAvailable => SearchMode.VectorOnly,
-            SearchMode.VectorOnly => SearchMode.Bm25Only, // fallback if no embedder
+            SearchMode.VectorOnly => throw new InvalidOperationException(
+                "Cannot use vector search: no embedding provider configured."),
             _ => (isVectorAvailable, isBm25Available) switch
             {
                 (true, true) => SearchMode.Hybrid,
