@@ -20,4 +20,7 @@ public enum ChunkIndexStatus
 
     /// <summary>Processing failed at some stage; see <c>last_error</c> for details.</summary>
     Failed = 4,
+
+    /// <summary>Content preserved from prior indexing; needs re-contextualization and re-embedding.</summary>
+    PendingContextualization = 5,
 }

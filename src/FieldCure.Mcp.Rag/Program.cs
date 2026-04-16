@@ -93,6 +93,7 @@ async Task<int> RunExecAsync(string[] args)
     if (kbPath is null) return PrintUsage();
 
     var force = args.Any(a => a.Equals("--force", StringComparison.OrdinalIgnoreCase));
+    var partial = ParseStringArg(args, "--partial");
     var verbose = args.Any(a => a.Equals("--verbose", StringComparison.OrdinalIgnoreCase)
         || a.Equals("-v", StringComparison.OrdinalIgnoreCase));
 
@@ -125,7 +126,7 @@ async Task<int> RunExecAsync(string[] args)
 
     try
     {
-        var result = await engine.RunAsync(force, CancellationToken.None);
+        var result = await engine.RunAsync(force, partial, CancellationToken.None);
         return result.ExitCode;
     }
     catch (Exception ex)
@@ -144,6 +145,16 @@ async Task<int> RunExecAsync(string[] args)
 /// <summary>
 /// Parses a named argument value from the command-line args (e.g., --base-path /foo).
 /// </summary>
+static string? ParseStringArg(string[] args, string name)
+{
+    for (int i = 0; i < args.Length - 1; i++)
+    {
+        if (args[i].Equals(name, StringComparison.OrdinalIgnoreCase))
+            return args[i + 1];
+    }
+    return null;
+}
+
 static string? ParseArg(string[] args, string name)
 {
     for (int i = 0; i < args.Length - 1; i++)

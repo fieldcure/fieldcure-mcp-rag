@@ -69,7 +69,8 @@ public sealed class IndexingEngine
     /// <summary>
     /// Runs the full indexing pipeline with stage-level failure handling.
     /// </summary>
-    public async Task<IndexingResult> RunAsync(bool force, CancellationToken cancellationToken)
+    public async Task<IndexingResult> RunAsync(
+        bool force, string? partial = null, CancellationToken cancellationToken = default)
     {
         // Acquire lock
         if (!_store.AcquireLock(Environment.ProcessId))
@@ -94,6 +95,18 @@ public sealed class IndexingEngine
             if (!string.IsNullOrWhiteSpace(_config.SystemPrompt))
                 await _store.SetMetadataAsync(
                     ChunkContextualizerHelper.MetaKeySystemPrompt, _config.SystemPrompt);
+
+            // Partial mode: prepare DB (clear downstream artifacts, mark pending)
+            if (partial == "contextualization")
+            {
+                _logger.LogInformation("[Partial] Preparing re-contextualization — preserving OCR output.");
+                await _store.PreparePartialContextualizationAsync();
+            }
+            else if (partial == "embedding")
+            {
+                _logger.LogInformation("[Partial] Preparing re-embedding — preserving contextualized text.");
+                await _store.PreparePartialEmbeddingAsync();
+            }
 
             // Collect files from all source paths
             var files = CollectFiles();
@@ -123,6 +136,12 @@ public sealed class IndexingEngine
             var logPath = Path.Combine(_kbPath, "index_timing.log");
             using var logWriter = new StreamWriter(logPath, append: true) { AutoFlush = true };
             logWriter.WriteLine($"--- {DateTime.Now:yyyy-MM-dd HH:mm:ss} force={force} files={files.Count} ---");
+
+            // In partial mode, skip the file-by-file main loop entirely —
+            // PreparePartial* already set all chunks to pending status, and
+            // the downstream passes will process them.
+            if (partial is null)
+            {
 
             var fileIndex = 0;
             foreach (var (filePath, sourcePath) in files)
@@ -473,6 +492,14 @@ public sealed class IndexingEngine
                 }
             }
 
+            } // end if (partial is null)
+
+            // === Partial contextualization pass ===
+            if (partial == "contextualization")
+            {
+                await RunPartialContextualizationPassAsync(logWriter, cancellationToken);
+            }
+
             // === Deferred retry second pass ===
             var (retriedIndexed, retriedDegraded, retriedFailed, healthAfter) =
                 await RunDeferredRetryPassAsync(providerHealth, cancellationToken);
@@ -516,6 +543,82 @@ public sealed class IndexingEngine
             _store.ReleaseLock();
         }
     }
+
+    #region Partial Re-index
+
+    /// <summary>
+    /// Re-contextualizes all chunks marked <see cref="ChunkIndexStatus.PendingContextualization"/>
+    /// and transitions them to <see cref="ChunkIndexStatus.PendingEmbedding"/> for the
+    /// deferred retry pass. Processes chunks in file-order groups to preserve document context.
+    /// </summary>
+    async Task RunPartialContextualizationPassAsync(StreamWriter logWriter, CancellationToken ct)
+    {
+        var pending = await _store.GetPendingContextualizationChunksAsync();
+        if (pending.Count == 0)
+        {
+            _logger.LogInformation("[PartialCtx] No pending contextualization chunks.");
+            return;
+        }
+
+        var byFile = pending.GroupBy(p => p.SourcePath).ToList();
+        _logger.LogInformation(
+            "[PartialCtx] Re-contextualizing {ChunkCount} chunks across {FileCount} files.",
+            pending.Count, byFile.Count);
+
+        foreach (var group in byFile)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (IsCancelled())
+            {
+                _logger.LogInformation("[PartialCtx] Cancel file detected.");
+                break;
+            }
+
+            var sourcePath = group.Key;
+            var chunks = group.OrderBy(c => c.ChunkIndex).ToList();
+
+            // Reconstruct the document text from chunk contents for contextualization
+            var documentText = string.Join("\n\n", chunks.Select(c => c.Content));
+            var chunkTuples = chunks.Select(c => (c.Content, 0)).ToList();
+
+            var enrichResults = await ContextualizeChunksAsync(
+                chunkTuples, documentText, sourcePath, ct);
+
+            var rawCount = 0;
+            var ctxCount = 0;
+            for (var i = 0; i < chunks.Count; i++)
+            {
+                var chunk = chunks[i];
+                var result = enrichResults[i];
+                await _store.UpdateChunkEnrichedAsync(
+                    chunk.Id, result.Text, result.IsContextualized,
+                    ChunkIndexStatus.PendingEmbedding);
+
+                if (result.IsContextualized) ctxCount++;
+                else rawCount++;
+            }
+
+            // Update file_index with contextualization results
+            var fileStatus = rawCount > 0 ? FileIndexStatus.PartiallyDeferred : FileIndexStatus.PartiallyDeferred;
+            await _store.UpdateFileContextualizationStatsAsync(
+                sourcePath, chunksContextualized: ctxCount, chunksRaw: rawCount);
+
+            var fileName = Path.GetFileName(sourcePath);
+            if (rawCount > 0)
+            {
+                logWriter.WriteLine($"[PartialCtx] {fileName} — {chunks.Count} chunks (contextualization failed: {rawCount}/{chunks.Count})");
+            }
+            else
+            {
+                logWriter.WriteLine($"[PartialCtx] {fileName} — {chunks.Count} chunks contextualized");
+            }
+        }
+
+        _logger.LogInformation("[PartialCtx] Pass complete.");
+    }
+
+    #endregion
 
     #region Stage Methods
 

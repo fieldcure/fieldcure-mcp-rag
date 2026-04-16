@@ -722,6 +722,138 @@ public sealed class SqliteVectorStore : IDisposable
     }
 
     /// <summary>
+    /// Returns chunks in <see cref="Models.ChunkIndexStatus.PendingContextualization"/> state,
+    /// grouped by source file for partial re-index.
+    /// </summary>
+    public async Task<IReadOnlyList<PendingChunk>> GetPendingContextualizationChunksAsync()
+    {
+        await using var conn = OpenConnection();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, source_path, chunk_index, content, enriched, retry_count
+            FROM chunks
+            WHERE status = @status
+            ORDER BY source_path, chunk_index
+            """;
+        cmd.Parameters.AddWithValue("@status", (int)Models.ChunkIndexStatus.PendingContextualization);
+
+        var results = new List<PendingChunk>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            results.Add(new PendingChunk(
+                Id: reader.GetString(0),
+                SourcePath: reader.GetString(1),
+                ChunkIndex: reader.GetInt32(2),
+                Content: reader.GetString(3),
+                EnrichedText: reader.IsDBNull(4) ? reader.GetString(3) : reader.GetString(4),
+                RetryCount: reader.GetInt32(5)));
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Prepares the DB for partial re-contextualization: clears embeddings and
+    /// enriched text, marks all chunks as <see cref="Models.ChunkIndexStatus.PendingContextualization"/>.
+    /// Preserves <c>chunks.content</c> (OCR output).
+    /// </summary>
+    public async Task PreparePartialContextualizationAsync()
+    {
+        await using var conn = OpenConnection();
+        await using var tx = await conn.BeginTransactionAsync();
+        try
+        {
+            await ExecuteNonQueryAsync(conn, tx, "DELETE FROM embeddings");
+            await ExecuteNonQueryAsync(conn, tx, """
+                UPDATE chunks SET enriched = content, is_contextualized = 0,
+                    status = @status, retry_count = 0, last_error = NULL
+                """, ("@status", (int)Models.ChunkIndexStatus.PendingContextualization));
+            await ExecuteNonQueryAsync(conn, tx, """
+                UPDATE file_index SET status = 0, chunks_raw = 0, chunks_contextualized = 0,
+                    chunks_pending = 0, last_error = NULL, last_error_stage = NULL
+                """);
+            await tx.CommitAsync();
+        }
+        catch { await tx.RollbackAsync(); throw; }
+    }
+
+    /// <summary>
+    /// Prepares the DB for partial re-embedding: clears embeddings only,
+    /// marks all chunks as <see cref="Models.ChunkIndexStatus.PendingEmbedding"/>.
+    /// Preserves <c>chunks.content</c> and <c>chunks.enriched</c>.
+    /// </summary>
+    public async Task PreparePartialEmbeddingAsync()
+    {
+        await using var conn = OpenConnection();
+        await using var tx = await conn.BeginTransactionAsync();
+        try
+        {
+            await ExecuteNonQueryAsync(conn, tx, "DELETE FROM embeddings");
+            await ExecuteNonQueryAsync(conn, tx, """
+                UPDATE chunks SET status = @status, retry_count = 0, last_error = NULL
+                """, ("@status", (int)Models.ChunkIndexStatus.PendingEmbedding));
+            await ExecuteNonQueryAsync(conn, tx, """
+                UPDATE file_index SET status = 0, chunks_pending = 0,
+                    last_error = NULL, last_error_stage = NULL
+                """);
+            await tx.CommitAsync();
+        }
+        catch { await tx.RollbackAsync(); throw; }
+    }
+
+    /// <summary>
+    /// Updates the enriched text and status for a single chunk after re-contextualization.
+    /// </summary>
+    public async Task UpdateChunkEnrichedAsync(
+        string chunkId, string enrichedText, bool isContextualized,
+        Models.ChunkIndexStatus newStatus)
+    {
+        await using var conn = OpenConnection();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE chunks SET enriched = @enriched, is_contextualized = @ctx,
+                status = @status, last_error = NULL
+            WHERE id = @id
+            """;
+        cmd.Parameters.AddWithValue("@enriched", enrichedText);
+        cmd.Parameters.AddWithValue("@ctx", isContextualized ? 1 : 0);
+        cmd.Parameters.AddWithValue("@status", (int)newStatus);
+        cmd.Parameters.AddWithValue("@id", chunkId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>
+    /// Updates contextualization stats on file_index after partial re-contextualization.
+    /// </summary>
+    public async Task UpdateFileContextualizationStatsAsync(
+        string sourcePath, int chunksContextualized, int chunksRaw)
+    {
+        await using var conn = OpenConnection();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE file_index SET chunks_contextualized = @ctx, chunks_raw = @raw
+            WHERE source_path = @path
+            """;
+        cmd.Parameters.AddWithValue("@ctx", chunksContextualized);
+        cmd.Parameters.AddWithValue("@raw", chunksRaw);
+        cmd.Parameters.AddWithValue("@path", sourcePath);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    static async Task ExecuteNonQueryAsync(
+        SqliteConnection conn, System.Data.Common.DbTransaction tx, string sql,
+        params (string Name, object Value)[] parameters)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.Transaction = (SqliteTransaction)tx;
+        cmd.CommandText = sql;
+        foreach (var (name, value) in parameters)
+            cmd.Parameters.AddWithValue(name, value);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>
     /// Updates a single chunk's status, typically after a deferred embedding retry.
     /// Always increments retry_count. If <paramref name="embedding"/> is provided
     /// and <paramref name="newStatus"/> is <see cref="Models.ChunkIndexStatus.Indexed"/>,
