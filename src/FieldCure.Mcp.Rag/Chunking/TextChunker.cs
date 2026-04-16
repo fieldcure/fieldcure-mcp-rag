@@ -10,6 +10,7 @@ public sealed partial class TextChunker
 {
     readonly int _chunkSize;
     readonly int _overlap;
+    readonly int _maxChars;
 
     /// <summary>
     /// Sentence boundary pattern covering:
@@ -28,10 +29,12 @@ public sealed partial class TextChunker
 
     /// <param name="chunkSize">Target chunk size in characters (default: 1000).</param>
     /// <param name="overlap">Overlap between adjacent chunks in characters (default: 150).</param>
-    public TextChunker(int chunkSize = 1000, int overlap = 150)
+    /// <param name="maxChars">Hard upper bound per chunk. Chunks exceeding this are re-split.</param>
+    public TextChunker(int chunkSize = 1000, int overlap = 150, int maxChars = 0)
     {
         _chunkSize = chunkSize;
         _overlap = overlap;
+        _maxChars = maxChars > 0 ? maxChars : ChunkLimits.DefaultMaxChars;
     }
 
     /// <summary>
@@ -105,7 +108,88 @@ public sealed partial class TextChunker
             }
         }
 
-        return results;
+        return EnforceMaxChars(results);
+    }
+
+    /// <summary>
+    /// Re-splits any chunk exceeding <see cref="_maxChars"/>.
+    /// Tries sentence boundaries first, then forces a hard cut.
+    /// </summary>
+    List<(string Content, int CharOffset)> EnforceMaxChars(
+        List<(string Content, int CharOffset)> chunks)
+    {
+        var enforced = new List<(string Content, int CharOffset)>(chunks.Count);
+
+        foreach (var (content, offset) in chunks)
+        {
+            if (content.Length <= _maxChars)
+            {
+                enforced.Add((content, offset));
+                continue;
+            }
+
+            SplitOversized(content, offset, enforced);
+        }
+
+        return enforced;
+    }
+
+    /// <summary>
+    /// Recursively splits an oversized chunk: sentence boundary → hard cut.
+    /// </summary>
+    void SplitOversized(string text, int baseOffset, List<(string Content, int CharOffset)> output)
+    {
+        if (text.Length <= _maxChars)
+        {
+            if (text.Trim().Length > 0)
+                output.Add((text.Trim(), baseOffset));
+            return;
+        }
+
+        // Try splitting on sentence boundary within the allowed range
+        var sentences = SplitIntoSentences(text);
+        if (sentences.Count > 1)
+        {
+            var current = "";
+            var currentOffset = baseOffset;
+            foreach (var (sentence, sentenceOffset) in sentences)
+            {
+                if (current.Length == 0)
+                {
+                    current = sentence;
+                    currentOffset = baseOffset + sentenceOffset;
+                    continue;
+                }
+
+                if (current.Length + sentence.Length + 1 <= _maxChars)
+                {
+                    current = current + " " + sentence;
+                }
+                else
+                {
+                    SplitOversized(current, currentOffset, output);
+                    current = sentence;
+                    currentOffset = baseOffset + sentenceOffset;
+                }
+            }
+
+            if (current.Trim().Length > 0)
+                SplitOversized(current, currentOffset, output);
+
+            return;
+        }
+
+        // No sentence boundaries — hard cut at maxChars
+        var pos = 0;
+        while (pos < text.Length)
+        {
+            var remaining = text.Length - pos;
+            var take = Math.Min(remaining, _maxChars);
+            var fragment = text.Substring(pos, take).Trim();
+            if (fragment.Length > 0)
+                output.Add((fragment, baseOffset + pos));
+            pos += take;
+        }
     }
 
     /// <summary>

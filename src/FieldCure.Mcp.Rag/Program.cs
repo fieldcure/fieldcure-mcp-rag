@@ -111,7 +111,7 @@ async Task<int> RunExecAsync(string[] args)
     var logger = loggerFactory.CreateLogger<IndexingEngine>();
     var credentials = new CredentialService();
     var store = new SqliteVectorStore(dbPath);
-    var chunker = new TextChunker();
+    var chunker = new TextChunker(maxChars: config.Embedding.MaxChunkChars);
     var embeddingProvider = CreateEmbeddingProvider(config.Embedding, credentials);
     var contextualizer = CreateContextualizer(config.Contextualizer, credentials, loggerFactory);
 

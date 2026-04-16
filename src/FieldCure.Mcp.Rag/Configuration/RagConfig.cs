@@ -62,4 +62,10 @@ public sealed class ProviderConfig
 
     /// <summary>Vector dimension override (embedding only, 0 = auto-detect).</summary>
     public int Dimension { get; set; }
+
+    /// <summary>
+    /// Maximum chunk size in characters for pre-validation (embedding only).
+    /// 0 or negative = use <see cref="Chunking.ChunkLimits.DefaultMaxChars"/>.
+    /// </summary>
+    public int MaxChunkChars { get; set; }
 }
