@@ -21,11 +21,22 @@ public static class SearchDocumentsTool
         int top_k = 5,
         [Description("Minimum similarity score 0-1 (default: 0.3)")]
         float threshold = 0.3f,
-        [Description("Search strategy: 'auto' (default, hybrid when possible), 'bm25' (keyword only, no embedding)")]
+        [Description(
+            "Search strategy (optional, default 'auto'): " +
+            "'auto' = hybrid when embedder is available, else BM25 (recommended); " +
+            "'bm25' = keyword-only, use only when the user explicitly asks for keyword/exact match " +
+            "or when vector search is known to be unavailable; " +
+            "'vector' = embedding-only, use only when the user explicitly asks for semantic/meaning-based search. " +
+            "Do not override the default to optimize for speed or cost — the server already handles fallback correctly.")]
         string search_mode = "auto",
         CancellationToken cancellationToken = default)
     {
-        var requestedMode = search_mode?.ToLowerInvariant() == "bm25" ? SearchMode.Bm25Only : (SearchMode?)null;
+        var requestedMode = search_mode?.ToLowerInvariant() switch
+        {
+            "bm25" => SearchMode.Bm25Only,
+            "vector" => SearchMode.VectorOnly,
+            _ => (SearchMode?)null,
+        };
         var kb = context.GetKb(kb_id);
         var hybrid = await kb.Searcher.SearchAsync(query, top_k, threshold, requestedMode, cancellationToken);
 

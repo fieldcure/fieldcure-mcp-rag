@@ -17,22 +17,25 @@ public sealed class HybridSearcher(SqliteVectorStore store, IEmbeddingProvider e
         var isVectorAvailable = embeddingProvider is not NullEmbeddingProvider;
         var candidateK = topK * 3;
 
-        // When the caller forces BM25-only, skip all vector work regardless
-        // of whether an embedding provider is configured.
-        var forceBm25 = requestedMode == SearchMode.Bm25Only;
+        var skipVector = requestedMode == SearchMode.Bm25Only;
+        var skipBm25 = requestedMode == SearchMode.VectorOnly;
 
-        var bm25Results = await store.SearchFtsAsync(query, candidateK);
+        var bm25Results = skipBm25 ? [] : await store.SearchFtsAsync(query, candidateK);
         var isBm25Available = bm25Results.Count > 0;
 
-        var mode = forceBm25
-            ? SearchMode.Bm25Only
-            : (isVectorAvailable, isBm25Available) switch
+        var mode = requestedMode switch
+        {
+            SearchMode.Bm25Only => SearchMode.Bm25Only,
+            SearchMode.VectorOnly when isVectorAvailable => SearchMode.VectorOnly,
+            SearchMode.VectorOnly => SearchMode.Bm25Only, // fallback if no embedder
+            _ => (isVectorAvailable, isBm25Available) switch
             {
                 (true, true) => SearchMode.Hybrid,
                 (true, false) => SearchMode.VectorOnly,
                 (false, true) => SearchMode.Bm25Only,
                 (false, false) => SearchMode.Bm25Only,
-            };
+            },
+        };
 
         List<string> finalIds;
         List<(string Id, double Score)> scoredIds;
