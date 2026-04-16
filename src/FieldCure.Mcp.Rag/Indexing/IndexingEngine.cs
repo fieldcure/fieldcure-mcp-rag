@@ -115,8 +115,8 @@ public sealed class IndexingEngine
                 _logger.LogInformation("Removed {Count} orphaned file entries.", removed);
 
             // Process files
-            var (indexed, skipped, failed, degraded, partiallyDeferred, needsAction, totalChunks) =
-                (0, 0, 0, 0, 0, 0, 0);
+            var (indexedThisRun, skippedThisRun, failedThisRun, totalChunks) =
+                (0, 0, 0, 0);
             var failedFiles = new List<FailedFile>();
             var providerHealth = ProviderHealth.Ok;
             var totalSw = Stopwatch.StartNew();
@@ -135,14 +135,16 @@ public sealed class IndexingEngine
                     CleanCancelFile();
 
                     totalSw.Stop();
-                    await PersistMetadataAsync(indexed, skipped, failed, degraded, partiallyDeferred,
+                    var cancelState = await _store.GetStateCountersAsync();
+                    await PersistMetadataAsync(indexedThisRun, skippedThisRun, cancelState,
                         failedFiles, totalSw.Elapsed, providerHealth);
 
                     return new IndexingResult
                     {
-                        Indexed = indexed, Skipped = skipped, Failed = failed,
-                        Degraded = degraded, PartiallyDeferred = partiallyDeferred,
-                        NeedsAction = needsAction,
+                        Indexed = indexedThisRun, Skipped = skippedThisRun,
+                        Failed = cancelState.Failed, Degraded = cancelState.Degraded,
+                        PartiallyDeferred = cancelState.PartiallyDeferred,
+                        NeedsAction = cancelState.NeedsAction,
                         FailedFiles = failedFiles, Duration = totalSw.Elapsed, ExitCode = 2,
                     };
                 }
@@ -181,10 +183,7 @@ public sealed class IndexingEngine
                             && fileState.Hash == hash
                             && fileState.Status.ShouldSkipOnHashMatch())
                         {
-                            if (fileState.Status == FileIndexStatus.NeedsAction)
-                                needsAction++;
-                            else
-                                skipped++;
+                            skippedThisRun++;
                             continue;
                         }
                     }
@@ -207,7 +206,7 @@ public sealed class IndexingEngine
 
                     if (string.IsNullOrWhiteSpace(text))
                     {
-                        skipped++;
+                        skippedThisRun++;
                         continue;
                     }
 
@@ -215,7 +214,7 @@ public sealed class IndexingEngine
                     var chunks = _chunker.Split(text);
                     if (chunks.Count == 0)
                     {
-                        skipped++;
+                        skippedThisRun++;
                         continue;
                     }
 
@@ -293,7 +292,7 @@ public sealed class IndexingEngine
                     try
                     {
                         _store.UpdateProgress(fileIndex, files.Count, "embedding",
-                            failed, providerHealth);
+                            failedThisRun, providerHealth);
 
                         splitResult = await EmbeddingBatchSplitter.EmbedWithBinarySplitAsync(
                             _embeddingProvider, _logger, chunkIds, textsToEmbed, cancellationToken,
@@ -317,7 +316,6 @@ public sealed class IndexingEngine
                     // === Safety guard fallback: leave everything as PendingEmbedding ===
                     if (splitResult.DeferredFallback)
                     {
-                        partiallyDeferred++;
                         _logger.LogWarning(
                             "[Indexing] {File} — embedding deferred via safety guard, " +
                             "Commit 1 chunks preserved for next exec retry.", storagePath);
@@ -348,7 +346,7 @@ public sealed class IndexingEngine
                             FileIndexStatus.Failed,
                             $"All {splitResult.FailedChunkIds.Count} chunks rejected by embedding provider",
                             "embed");
-                        failed++;
+                        failedThisRun++;
                         failedFiles.Add(new FailedFile(
                             storagePath, "embedding provider rejected every chunk (binary-split isolated)"));
                         _logger.LogWarning(
@@ -376,8 +374,7 @@ public sealed class IndexingEngine
                         chunksPending: 0,
                         ct: cancellationToken);
 
-                    if (finalStatus == FileIndexStatus.Degraded) degraded++;
-                    indexed++;
+                    indexedThisRun++;
                     totalChunks += splitResult.Succeeded.Count;
 
                     var splitNote = splitResult.FailedChunkIds.Count > 0
@@ -422,7 +419,7 @@ public sealed class IndexingEngine
                             "[Indexing] Extract failed for {File} but no file_index row exists; " +
                             "file will surface as 'added' on the next check_changes.", storagePath);
                     }
-                    failed++;
+                    failedThisRun++;
                     failedFiles.Add(new FailedFile(storagePath,
                         $"{ex.InnerException?.GetType().Name ?? "Exception"}: {ex.Message}"));
                     _logger.LogWarning(ex,
@@ -435,7 +432,6 @@ public sealed class IndexingEngine
                     // persisted the chunks as PendingEmbedding and file_index as
                     // PartiallyDeferred. We do NOT call MarkFileAsFailedAsync here —
                     // that would redundantly UPDATE the same row we just wrote.
-                    partiallyDeferred++;
 
                     if (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
                     {
@@ -464,7 +460,7 @@ public sealed class IndexingEngine
                 catch (Exception ex)
                 {
                     // Unexpected failure — do not touch file_index
-                    failed++;
+                    failedThisRun++;
                     failedFiles.Add(new FailedFile(storagePath, $"{ex.GetType().Name}: {ex.Message}"));
                     _logger.LogError(ex, "[Indexing] Unexpected failure for {File}", storagePath);
                     logWriter.WriteLine($"[FAILED] {storagePath} — {ex.GetType().Name}: {ex.Message}");
@@ -473,27 +469,18 @@ public sealed class IndexingEngine
                 {
                     fileIndex++;
                     _store.UpdateProgress(fileIndex, files.Count,
-                        currentStage: null, failedCount: failed, providerHealth: providerHealth);
+                        currentStage: null, failedCount: failedThisRun, providerHealth: providerHealth);
                 }
             }
 
             // === Deferred retry second pass ===
-            // Picks up files still in PartiallyDeferred state, including any
-            // left over from previous exec runs. Uses the same binary-split
-            // helper as the main loop, so per-chunk failure isolation is free.
             var (retriedIndexed, retriedDegraded, retriedFailed, healthAfter) =
                 await RunDeferredRetryPassAsync(providerHealth, cancellationToken);
             providerHealth = healthAfter;
-            indexed += retriedIndexed;
-            degraded += retriedDegraded;
-            failed += retriedFailed;
+            indexedThisRun += retriedIndexed;
 
-            // Recompute partiallyDeferred from the DB so the summary reflects
-            // whatever the second pass left in PartiallyDeferred state — which
-            // may differ from the main-loop counter (second pass may have
-            // promoted files from previous execs that this run never touched).
-            partiallyDeferred = await _store.CountFilesByStatusAsync(
-                FileIndexStatus.PartiallyDeferred);
+            // Query state from DB — single source of truth for state counters
+            var state = await _store.GetStateCountersAsync();
 
             totalSw.Stop();
             var duration = totalSw.Elapsed;
@@ -501,23 +488,26 @@ public sealed class IndexingEngine
             var retriedSuffix = (retriedIndexed + retriedDegraded + retriedFailed) > 0
                 ? $" (deferred-retry: +{retriedIndexed} indexed, +{retriedDegraded} degraded, +{retriedFailed} failed)"
                 : "";
-            var summary = $"[Index] Done — indexed={indexed} skipped={skipped} failed={failed} " +
-                          $"degraded={degraded} deferred={partiallyDeferred} " +
-                          (needsAction > 0 ? $"needsAction={needsAction} " : "") +
+            var runLine = $"Run:    indexed={indexedThisRun} skipped={skippedThisRun} " +
                           $"removed={removed} chunks={totalChunks} elapsed={totalSw.ElapsedMilliseconds}ms" +
                           retriedSuffix;
-            _logger.LogInformation("{Summary}", summary);
-            logWriter.WriteLine(summary);
+            var stateLine = $"State:  failed={state.Failed} degraded={state.Degraded} " +
+                            $"deferred={state.PartiallyDeferred} needsAction={state.NeedsAction}";
+            _logger.LogInformation("{RunLine}", runLine);
+            _logger.LogInformation("{StateLine}", stateLine);
+            logWriter.WriteLine(runLine);
+            logWriter.WriteLine(stateLine);
 
-            await PersistMetadataAsync(indexed, skipped, failed, degraded, partiallyDeferred,
+            await PersistMetadataAsync(indexedThisRun, skippedThisRun, state,
                 failedFiles, duration, providerHealth);
 
-            var exitCode = failed > 0 && indexed == 0 ? 1 : 0;
+            var exitCode = state.Failed > 0 && indexedThisRun == 0 ? 1 : 0;
             return new IndexingResult
             {
-                Indexed = indexed, Skipped = skipped, Failed = failed,
-                Degraded = degraded, PartiallyDeferred = partiallyDeferred,
-                NeedsAction = needsAction,
+                Indexed = indexedThisRun, Skipped = skippedThisRun,
+                Failed = state.Failed, Degraded = state.Degraded,
+                PartiallyDeferred = state.PartiallyDeferred,
+                NeedsAction = state.NeedsAction,
                 FailedFiles = failedFiles, Duration = duration, ExitCode = exitCode,
             };
         }
@@ -771,31 +761,21 @@ public sealed class IndexingEngine
     /// Persists all post-run metadata to index_metadata table.
     /// </summary>
     async Task PersistMetadataAsync(
-        int indexed, int skipped, int failed, int degraded, int partiallyDeferred,
+        int indexedThisRun, int skippedThisRun, IndexStateCounters state,
         List<FailedFile> failedFiles, TimeSpan duration, ProviderHealth providerHealth)
     {
-        // Note: no counter sanity check here. The in-memory counters are
-        // per-run deltas (files that transitioned to each status this run),
-        // while DB CountFilesByStatusAsync returns current totals. They
-        // are not expected to match — a previously-Degraded file that
-        // hash-skips this run contributes to the DB count but not the
-        // in-memory delta. The v1.4.0 MarkFileAsFailedAsync no-op bug this
-        // check was meant to catch is now prevented structurally by the
-        // 2-commit model (PersistChunksAsPendingAsync unconditionally
-        // inserts a file_index row via INSERT ... ON CONFLICT).
-
         // Legacy keys (backward compatible)
-        await _store.SetMetadataAsync("last_failed_count", failed.ToString());
+        await _store.SetMetadataAsync("last_failed_count", state.Failed.ToString());
         await _store.SetMetadataAsync("last_failed_files",
             JsonSerializer.Serialize(failedFiles.Select(f => f.Path)));
         await _store.SetMetadataAsync("last_failed_reasons",
             JsonSerializer.Serialize(failedFiles.Select(f => f.Reason)));
 
-        // v1.4 keys
-        await _store.SetMetadataAsync("last_indexed_count", indexed.ToString());
-        await _store.SetMetadataAsync("last_skipped_count", skipped.ToString());
-        await _store.SetMetadataAsync("last_degraded_count", degraded.ToString());
-        await _store.SetMetadataAsync("last_partially_deferred_count", partiallyDeferred.ToString());
+        // v1.4 keys — deltas for indexed/skipped, state for the rest
+        await _store.SetMetadataAsync("last_indexed_count", indexedThisRun.ToString());
+        await _store.SetMetadataAsync("last_skipped_count", skippedThisRun.ToString());
+        await _store.SetMetadataAsync("last_degraded_count", state.Degraded.ToString());
+        await _store.SetMetadataAsync("last_partially_deferred_count", state.PartiallyDeferred.ToString());
         await _store.SetMetadataAsync("last_run_duration_ms", ((int)duration.TotalMilliseconds).ToString());
         await _store.SetMetadataAsync("last_run_completed_utc", DateTimeOffset.UtcNow.ToString("O"));
         await _store.SetMetadataAsync("last_provider_health", ((int)providerHealth).ToString());

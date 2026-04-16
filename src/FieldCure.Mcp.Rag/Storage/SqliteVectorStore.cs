@@ -647,6 +647,36 @@ public sealed class SqliteVectorStore : IDisposable
     /// a drift between "partiallyDeferred" the variable and rows with
     /// <see cref="Models.FileIndexStatus.PartiallyDeferred"/>).
     /// </summary>
+    /// <summary>
+    /// Returns a snapshot of the current file_index state — not a delta from
+    /// any particular run. Used for end-of-run summary and get_index_info.
+    /// </summary>
+    public async Task<IndexStateCounters> GetStateCountersAsync()
+    {
+        await using var conn = OpenConnection();
+        try
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                SELECT
+                    COALESCE(SUM(CASE WHEN status = @failed THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN status = @degraded THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN status = @deferred THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN status = @needsAction THEN 1 ELSE 0 END), 0)
+                FROM file_index
+                """;
+            cmd.Parameters.AddWithValue("@failed", (int)FileIndexStatus.Failed);
+            cmd.Parameters.AddWithValue("@degraded", (int)FileIndexStatus.Degraded);
+            cmd.Parameters.AddWithValue("@deferred", (int)FileIndexStatus.PartiallyDeferred);
+            cmd.Parameters.AddWithValue("@needsAction", (int)FileIndexStatus.NeedsAction);
+            await using var reader = await cmd.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+                return new IndexStateCounters(reader.GetInt32(0), reader.GetInt32(1), reader.GetInt32(2), reader.GetInt32(3));
+        }
+        catch (SqliteException) { }
+        return new IndexStateCounters(0, 0, 0, 0);
+    }
+
     public async Task<int> CountFilesByStatusAsync(FileIndexStatus status)
     {
         await using var conn = OpenConnection();
