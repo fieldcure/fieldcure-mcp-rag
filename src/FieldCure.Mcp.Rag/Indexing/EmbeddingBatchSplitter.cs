@@ -65,7 +65,8 @@ internal static class EmbeddingBatchSplitter
         IReadOnlyList<string> chunkIds,
         IReadOnlyList<string> enrichedTexts,
         CancellationToken ct,
-        string? sourceLabel = null)
+        string? sourceLabel = null,
+        int batchSize = 0)
     {
         ArgumentNullException.ThrowIfNull(provider);
         ArgumentNullException.ThrowIfNull(logger);
@@ -79,13 +80,49 @@ internal static class EmbeddingBatchSplitter
         if (chunkIds.Count == 0)
             return new EmbedWithSplitResult([], [], DeferredFallback: false);
 
+        // When a batch size is specified and the input exceeds it, process
+        // in windows so the first API call succeeds without binary-split.
+        if (batchSize > 0 && chunkIds.Count > batchSize)
+        {
+            var allSucceeded = new List<(string ChunkId, float[] Embedding)>();
+            var allFailed = new List<string>();
+            var anyDeferred = false;
+
+            for (var offset = 0; offset < chunkIds.Count; offset += batchSize)
+            {
+                ct.ThrowIfCancellationRequested();
+                var end = Math.Min(offset + batchSize, chunkIds.Count);
+                var windowIds = chunkIds.Skip(offset).Take(end - offset).ToList();
+                var windowTexts = enrichedTexts.Skip(offset).Take(end - offset).ToList();
+
+                var windowResult = await EmbedSingleBatchAsync(
+                    provider, logger, windowIds, windowTexts, ct, sourceLabel);
+
+                allSucceeded.AddRange(windowResult.Succeeded);
+                allFailed.AddRange(windowResult.FailedChunkIds);
+                if (windowResult.DeferredFallback) anyDeferred = true;
+            }
+
+            return new EmbedWithSplitResult(allSucceeded, allFailed, anyDeferred);
+        }
+
+        return await EmbedSingleBatchAsync(
+            provider, logger, chunkIds, enrichedTexts, ct, sourceLabel);
+    }
+
+    static async Task<EmbedWithSplitResult> EmbedSingleBatchAsync(
+        IEmbeddingProvider provider,
+        ILogger logger,
+        IReadOnlyList<string> chunkIds,
+        IReadOnlyList<string> enrichedTexts,
+        CancellationToken ct,
+        string? sourceLabel)
+    {
         var diag = new BinarySplitDiagnostics();
         var result = await EmbedCoreAsync(
             provider, logger, chunkIds, enrichedTexts,
             absoluteOffset: 0, depth: 0, diag, sourceLabel, ct);
 
-        // Only close the trace when we actually entered split mode — the
-        // happy path must stay silent so normal runs don't spam logs.
         if (diag.HasEnteredSplitMode)
         {
             var label = FormatLabel(sourceLabel);

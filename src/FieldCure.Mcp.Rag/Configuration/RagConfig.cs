@@ -68,4 +68,10 @@ public sealed class ProviderConfig
     /// 0 or negative = use <see cref="Chunking.ChunkLimits.DefaultMaxChars"/>.
     /// </summary>
     public int MaxChunkChars { get; set; }
+
+    /// <summary>
+    /// Maximum chunks per embedding API call (embedding only).
+    /// 0 or negative = use <see cref="Embedding.EmbeddingBatchSizes"/> table lookup.
+    /// </summary>
+    public int BatchSize { get; set; }
 }

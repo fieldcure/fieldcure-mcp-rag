@@ -47,6 +47,7 @@ public sealed class IndexingEngine
     readonly TextChunker _chunker;
     readonly IChunkContextualizer _contextualizer;
     readonly ILogger _logger;
+    readonly int _embeddingBatchSize;
 
     public IndexingEngine(
         string kbPath,
@@ -64,6 +65,9 @@ public sealed class IndexingEngine
         _chunker = chunker;
         _contextualizer = contextualizer;
         _logger = logger;
+        _embeddingBatchSize = config.Embedding.BatchSize > 0
+            ? config.Embedding.BatchSize
+            : EmbeddingBatchSizes.Resolve(config.Embedding.Provider, config.Embedding.Model);
     }
 
     /// <summary>
@@ -357,7 +361,7 @@ public sealed class IndexingEngine
 
                         splitResult = await EmbeddingBatchSplitter.EmbedWithBinarySplitAsync(
                             _embeddingProvider, _logger, chunkIds, textsToEmbed, cancellationToken,
-                            sourceLabel: storagePath);
+                            sourceLabel: storagePath, batchSize: _embeddingBatchSize);
                     }
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
                     catch (HttpRequestException httpEx)
@@ -766,7 +770,7 @@ public sealed class IndexingEngine
             {
                 splitResult = await EmbeddingBatchSplitter.EmbedWithBinarySplitAsync(
                     _embeddingProvider, _logger, eligibleIds, eligibleTexts, ct,
-                    sourceLabel: sourcePath);
+                    sourceLabel: sourcePath, batchSize: _embeddingBatchSize);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
