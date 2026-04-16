@@ -25,6 +25,7 @@ if (args.Length > 0)
     return args[0].ToLowerInvariant() switch
     {
         "exec" => await RunExecAsync(args),
+        "exec-queue" => await RunExecQueueAsync(args),
         "serve" => await RunServeAsync(args),
         _ => PrintUsage(),
     };
@@ -146,6 +147,31 @@ async Task<int> RunExecAsync(string[] args)
     }
 }
 
+// ── Exec-Queue Mode ─────────────────────────────────────────────────────────
+
+/// <summary>
+/// Runs the deferred queue orchestrator — processes KB entries sequentially.
+/// </summary>
+async Task<int> RunExecQueueAsync(string[] args)
+{
+    var queueFile = ParseArg(args, "--queue-file");
+    if (queueFile is null) return PrintUsage();
+
+    var verbose = args.Any(a => a.Equals("--verbose", StringComparison.OrdinalIgnoreCase)
+        || a.Equals("-v", StringComparison.OrdinalIgnoreCase));
+
+    using var loggerFactory = LoggerFactory.Create(builder =>
+    {
+        builder.SetMinimumLevel(verbose ? LogLevel.Debug : LogLevel.Information);
+        builder.AddConsole(options =>
+        {
+            options.LogToStandardErrorThreshold = LogLevel.Trace;
+        });
+    });
+
+    return await ExecQueueRunner.RunAsync(queueFile, verbose, loggerFactory);
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /// <summary>
@@ -231,8 +257,9 @@ static int PrintUsage()
     Console.Error.WriteLine("FieldCure RAG — Document indexing and hybrid search engine");
     Console.Error.WriteLine();
     Console.Error.WriteLine("Usage:");
-    Console.Error.WriteLine("  fieldcure-mcp-rag serve --base-path <path>           Start multi-KB MCP search server (stdio)");
-    Console.Error.WriteLine("  fieldcure-mcp-rag exec  --path <kb-path> [--force] [--verbose|-v]   Run headless indexing for a single KB");
+    Console.Error.WriteLine("  fieldcure-mcp-rag serve      --base-path <path>                    Start multi-KB MCP search server (stdio)");
+    Console.Error.WriteLine("  fieldcure-mcp-rag exec       --path <kb-path> [--force] [-v]       Run headless indexing for a single KB");
+    Console.Error.WriteLine("  fieldcure-mcp-rag exec-queue  --queue-file <path> [-v]              Process deferred queue sequentially");
     Console.Error.WriteLine();
     Console.Error.WriteLine("Exit codes (exec mode):");
     Console.Error.WriteLine("  0  Succeeded");
