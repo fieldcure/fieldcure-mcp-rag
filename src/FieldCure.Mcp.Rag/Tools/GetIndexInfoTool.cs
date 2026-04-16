@@ -44,6 +44,9 @@ public static class GetIndexInfoTool
         var failedFilesJson = await store.GetMetadataAsync("last_failed_files");
         var failedReasonsJson = await store.GetMetadataAsync("last_failed_reasons");
 
+        // v1.4.3 contextualization stats (from file_index aggregate)
+        var ctxStats = await store.GetContextualizationStatsAsync();
+
         // v1.4 metadata
         var indexedCountStr = await store.GetMetadataAsync("last_indexed_count");
         var skippedCountStr = await store.GetMetadataAsync("last_skipped_count");
@@ -82,6 +85,10 @@ public static class GetIndexInfoTool
             last_run_duration_ms = int.TryParse(durationMsStr, out var dm) ? dm : (int?)null,
             last_run_completed_utc = runCompletedUtc,
             last_provider_health = int.TryParse(providerHealthStr, out var ph) ? ph : (int?)null,
+            // v1.4.3 contextualization health
+            total_chunks_contextualized = ctxStats.TotalContextualized,
+            total_chunks_raw = ctxStats.TotalRaw,
+            files_contextualization_degraded = ctxStats.FilesDegraded,
         };
 
         return JsonSerializer.Serialize(result, McpJson.Indented);

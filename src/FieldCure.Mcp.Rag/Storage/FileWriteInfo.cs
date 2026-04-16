@@ -17,6 +17,9 @@ public sealed record FileWriteInfo
     /// <summary>Number of chunks indexed without contextualization.</summary>
     public required int ChunksRaw { get; init; }
 
+    /// <summary>Number of chunks successfully contextualized.</summary>
+    public int ChunksContextualized { get; init; }
+
     /// <summary>Number of chunks pending embedding.</summary>
     public required int ChunksPending { get; init; }
 

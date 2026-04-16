@@ -257,11 +257,13 @@ public sealed class IndexingEngine
                         };
                     }
 
+                    var contextualizedCount = enrichResults.Count(r => r.IsContextualized);
                     var pendingFileInfo = new FileWriteInfo
                     {
                         FileHash = hash,
                         Status = FileIndexStatus.PartiallyDeferred,
                         ChunksRaw = rawCount,
+                        ChunksContextualized = contextualizedCount,
                         ChunksPending = chunks.Count,
                     };
 
@@ -381,12 +383,24 @@ public sealed class IndexingEngine
                     var splitNote = splitResult.FailedChunkIds.Count > 0
                         ? $" ({splitResult.FailedChunkIds.Count} failed via split)"
                         : "";
-                    var line = $"[Index] {Path.GetFileName(filePath)} — {chunks.Count} chunks" +
-                               (rawCount > 0 ? $" ({rawCount} raw)" : "") +
-                               splitNote +
-                               $", total={fileSw.ElapsedMilliseconds}ms";
-                    _logger.LogInformation("{Line}", line);
-                    logWriter.WriteLine(line);
+                    var fileName = Path.GetFileName(filePath);
+                    if (rawCount > 0)
+                    {
+                        var line1 = $"[Index] {fileName} — {chunks.Count} chunks";
+                        var line2 = $"        (contextualization failed: {rawCount}/{chunks.Count}, falling back to raw)";
+                        var line3 = $"        total={fileSw.ElapsedMilliseconds}ms{splitNote}";
+                        _logger.LogInformation("{Line}", line1);
+                        _logger.LogInformation("{Line}", line2);
+                        logWriter.WriteLine(line1);
+                        logWriter.WriteLine(line2);
+                        logWriter.WriteLine(line3);
+                    }
+                    else
+                    {
+                        var line = $"[Index] {fileName} — {chunks.Count} chunks{splitNote}, total={fileSw.ElapsedMilliseconds}ms";
+                        _logger.LogInformation("{Line}", line);
+                        logWriter.WriteLine(line);
+                    }
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {

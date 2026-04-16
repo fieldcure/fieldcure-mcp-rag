@@ -19,7 +19,7 @@ public sealed class SqliteVectorStore : IDisposable
     /// Databases created before v1.4.1 report 0 (SQLite default), regardless
     /// of which actual schema columns they contain.
     /// </summary>
-    public const int TargetUserVersion = 1;
+    public const int TargetUserVersion = 2;
 
     readonly string _connectionString;
 
@@ -194,6 +194,7 @@ public sealed class SqliteVectorStore : IDisposable
         // file_index: per-file status tracking
         AddColumnIfMissing(conn, "file_index", "status", "INTEGER NOT NULL DEFAULT 0");
         AddColumnIfMissing(conn, "file_index", "chunks_raw", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(conn, "file_index", "chunks_contextualized", "INTEGER NOT NULL DEFAULT 0");
         AddColumnIfMissing(conn, "file_index", "chunks_pending", "INTEGER NOT NULL DEFAULT 0");
         AddColumnIfMissing(conn, "file_index", "last_error", "TEXT");
         AddColumnIfMissing(conn, "file_index", "last_error_stage", "TEXT");
@@ -581,14 +582,15 @@ public sealed class SqliteVectorStore : IDisposable
         cmd.Transaction = tx;
         cmd.CommandText = """
             INSERT INTO file_index
-                (source_path, file_hash, indexed_at, status, chunks_raw, chunks_pending, last_error, last_error_stage)
+                (source_path, file_hash, indexed_at, status, chunks_raw, chunks_contextualized, chunks_pending, last_error, last_error_stage)
             VALUES
-                (@source_path, @file_hash, @indexed_at, @status, @chunks_raw, @chunks_pending, @last_error, @last_error_stage)
+                (@source_path, @file_hash, @indexed_at, @status, @chunks_raw, @chunks_contextualized, @chunks_pending, @last_error, @last_error_stage)
             ON CONFLICT(source_path) DO UPDATE SET
                 file_hash = excluded.file_hash,
                 indexed_at = excluded.indexed_at,
                 status = excluded.status,
                 chunks_raw = excluded.chunks_raw,
+                chunks_contextualized = excluded.chunks_contextualized,
                 chunks_pending = excluded.chunks_pending,
                 last_error = excluded.last_error,
                 last_error_stage = excluded.last_error_stage
@@ -598,6 +600,7 @@ public sealed class SqliteVectorStore : IDisposable
         cmd.Parameters.AddWithValue("@indexed_at", DateTime.UtcNow.ToString("O"));
         cmd.Parameters.AddWithValue("@status", (int)info.Status);
         cmd.Parameters.AddWithValue("@chunks_raw", info.ChunksRaw);
+        cmd.Parameters.AddWithValue("@chunks_contextualized", info.ChunksContextualized);
         cmd.Parameters.AddWithValue("@chunks_pending", info.ChunksPending);
         cmd.Parameters.AddWithValue("@last_error", (object?)info.LastError ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@last_error_stage", (object?)info.LastErrorStage ?? DBNull.Value);
@@ -906,6 +909,33 @@ public sealed class SqliteVectorStore : IDisposable
         cmd.CommandText = "SELECT COUNT(*) FROM chunks";
         var result = await cmd.ExecuteScalarAsync();
         return Convert.ToInt32(result);
+    }
+
+    /// <summary>
+    /// Returns aggregate contextualization stats across all files.
+    /// </summary>
+    public async Task<(int TotalContextualized, int TotalRaw, int FilesDegraded)> GetContextualizationStatsAsync()
+    {
+        await using var conn = OpenConnection();
+        try
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                SELECT
+                    COALESCE(SUM(chunks_contextualized), 0),
+                    COALESCE(SUM(chunks_raw), 0),
+                    COALESCE(SUM(CASE WHEN chunks_raw > 0 THEN 1 ELSE 0 END), 0)
+                FROM file_index
+                """;
+            await using var reader = await cmd.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+                return (reader.GetInt32(0), reader.GetInt32(1), reader.GetInt32(2));
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException)
+        {
+            // Legacy DB without chunks_contextualized/chunks_raw columns
+        }
+        return (0, 0, 0);
     }
 
     /// <summary>

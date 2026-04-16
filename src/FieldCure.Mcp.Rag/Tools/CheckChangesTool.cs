@@ -104,6 +104,10 @@ public static class CheckChangesTool
         var currentSchemaVersion = Storage.SqliteVectorStore.TargetUserVersion;
         var isSchemaStale = kbSchemaVersion < currentSchemaVersion;
 
+        // 7. Contextualization degradation — any file with raw chunks.
+        var ctxStats = await store.GetContextualizationStatsAsync();
+        var isContextualizationDegraded = ctxStats.FilesDegraded > 0;
+
         var result = new
         {
             kb_id,
@@ -119,6 +123,7 @@ public static class CheckChangesTool
             is_schema_stale = isSchemaStale,
             kb_schema_version = kbSchemaVersion,
             current_schema_version = currentSchemaVersion,
+            is_contextualization_degraded = isContextualizationDegraded,
             is_clean = addedFiles.Count == 0 && modifiedFiles.Count == 0
                        && deletedFiles.Count == 0 && !isPromptStale && !isSchemaStale,
         };
