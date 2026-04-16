@@ -61,6 +61,20 @@ public sealed class MultiKbContext : IDisposable
     }
 
     /// <summary>
+    /// Evicts a cached KB instance and disposes its SQLite connection.
+    /// No-op if the KB is not loaded. The next <see cref="GetKb"/> call
+    /// will lazy-reload it (or fail with "not found" if deleted).
+    /// </summary>
+    public void UnloadKb(string kbId)
+    {
+        if (_instances.TryRemove(kbId, out var removed))
+        {
+            removed.Dispose();
+            _logger.LogInformation("Unloaded KB {KbId}", kbId);
+        }
+    }
+
+    /// <summary>
     /// Lists all knowledge bases by scanning the base path for folders with config.json.
     /// Applies four guards per folder (prefix, config.json existence, parseability,
     /// id ↔ folder name match) to avoid misidentifying user backup folders or broken
