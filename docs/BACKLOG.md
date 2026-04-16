@@ -160,6 +160,27 @@ hosts can call it unconditionally. Serve's existing lazy-load
 path reopens the KB on the next search call, so a "phantom
 unload" mid-query is recoverable without restart.
 
+### Embedding batch size adaptive sizing
+
+Currently the embedding provider sends all chunks in a single batch;
+on rejection the binary-split fallback halves recursively until each
+sub-batch succeeds. This works but wastes provider calls when the
+initial batch always exceeds the API's per-request limit (e.g., Ollama
+rejects >512 items).
+
+Options (not mutually exclusive):
+
+- **A. Config field** — `embedding.batch_size` (user-tunable, like
+  `max_chunk_chars`). Simplest, zero runtime overhead.
+- **B. Persistent adaptive sizing** — on first rejection, halve the
+  batch size and persist the learned value in `index_metadata` so the
+  next exec starts at the proven-safe size. Converges in one run.
+- **C. Provider-default table** — built-in table (`ollama=256`,
+  `openai=2048`, etc.) as starting point, overridden by config.
+
+Orthogonal to #1 (chunk char limit): #1 bounds individual chunk size
+(token limit), this bounds how many chunks per API call (rate limit).
+
 ### Counter delta-vs-state semantics cleanup
 
 See `project_counter_semantics.md` in the AssistStudio memory. The in-memory
