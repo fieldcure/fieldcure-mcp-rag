@@ -21,10 +21,13 @@ public static class SearchDocumentsTool
         int top_k = 5,
         [Description("Minimum similarity score 0-1 (default: 0.3)")]
         float threshold = 0.3f,
+        [Description("Search strategy: 'auto' (default, hybrid when possible), 'bm25' (keyword only, no embedding)")]
+        string search_mode = "auto",
         CancellationToken cancellationToken = default)
     {
+        var requestedMode = search_mode?.ToLowerInvariant() == "bm25" ? SearchMode.Bm25Only : (SearchMode?)null;
         var kb = context.GetKb(kb_id);
-        var hybrid = await kb.Searcher.SearchAsync(query, top_k, threshold, cancellationToken);
+        var hybrid = await kb.Searcher.SearchAsync(query, top_k, threshold, requestedMode, cancellationToken);
 
         var response = new
         {

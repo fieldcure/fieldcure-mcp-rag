@@ -11,23 +11,28 @@ namespace FieldCure.Mcp.Rag.Search;
 public sealed class HybridSearcher(SqliteVectorStore store, IEmbeddingProvider embeddingProvider)
 {
     public async Task<HybridSearchResult> SearchAsync(
-        string query, int topK, float threshold, CancellationToken ct = default)
+        string query, int topK, float threshold,
+        SearchMode? requestedMode = null, CancellationToken ct = default)
     {
         var isVectorAvailable = embeddingProvider is not NullEmbeddingProvider;
         var candidateK = topK * 3;
 
-        // BM25 search (always attempted; returns empty if query tokens are too short)
+        // When the caller forces BM25-only, skip all vector work regardless
+        // of whether an embedding provider is configured.
+        var forceBm25 = requestedMode == SearchMode.Bm25Only;
+
         var bm25Results = await store.SearchFtsAsync(query, candidateK);
         var isBm25Available = bm25Results.Count > 0;
 
-        // Determine search mode
-        var mode = (isVectorAvailable, isBm25Available) switch
-        {
-            (true, true) => SearchMode.Hybrid,
-            (true, false) => SearchMode.VectorOnly,
-            (false, true) => SearchMode.Bm25Only,
-            (false, false) => SearchMode.Bm25Only, // No results either way
-        };
+        var mode = forceBm25
+            ? SearchMode.Bm25Only
+            : (isVectorAvailable, isBm25Available) switch
+            {
+                (true, true) => SearchMode.Hybrid,
+                (true, false) => SearchMode.VectorOnly,
+                (false, true) => SearchMode.Bm25Only,
+                (false, false) => SearchMode.Bm25Only,
+            };
 
         List<string> finalIds;
         List<(string Id, double Score)> scoredIds;
