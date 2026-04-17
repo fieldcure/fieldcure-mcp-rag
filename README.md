@@ -172,6 +172,7 @@ dotnet build
 - [.NET 8.0 Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) or later
 - **Windows x64 only** — Tesseract OCR native binaries are bundled for x64
 - An embedding provider (Ollama, OpenAI, etc.) — optional, BM25 search works without it
+- [Ollama](https://ollama.ai) 0.4.0 or later (if using Ollama for embedding or contextualization)
 
 ## Quick Start
 

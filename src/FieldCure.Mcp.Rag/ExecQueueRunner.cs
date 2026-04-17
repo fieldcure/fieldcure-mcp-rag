@@ -242,6 +242,12 @@ internal static class ExecQueueRunner
             _ => "http://localhost:11434",
         };
 
+        if (config.Provider.Equals("ollama", StringComparison.OrdinalIgnoreCase))
+            return new OllamaEmbeddingProvider(
+                baseUrl, config.Model,
+                config.KeepAlive ?? OllamaDefaults.KeepAlive,
+                config.Dimension);
+
         return new OpenAiCompatibleEmbeddingProvider(baseUrl, apiKey, config.Model, config.Dimension);
     }
 
@@ -266,6 +272,13 @@ internal static class ExecQueueRunner
         if (config.Provider.Equals("anthropic", StringComparison.OrdinalIgnoreCase))
             return new AnthropicChunkContextualizer(
                 apiKey, config.Model, baseUrl, logger: loggerFactory.CreateLogger<AnthropicChunkContextualizer>());
+
+        if (config.Provider.Equals("ollama", StringComparison.OrdinalIgnoreCase))
+            return new OllamaChunkContextualizer(
+                baseUrl, config.Model,
+                config.KeepAlive ?? OllamaDefaults.KeepAlive,
+                config.NumCtx ?? OllamaDefaults.NumCtx,
+                logger: loggerFactory.CreateLogger<OllamaChunkContextualizer>());
 
         return new OpenAiChunkContextualizer(
             baseUrl, config.Model, apiKey, logger: loggerFactory.CreateLogger<OpenAiChunkContextualizer>());
