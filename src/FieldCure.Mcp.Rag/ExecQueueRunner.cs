@@ -18,20 +18,32 @@ namespace FieldCure.Mcp.Rag;
 /// Orchestrator that consumes the deferred indexing queue sequentially.
 /// Each entry is processed one at a time — no GPU contention.
 /// The queue file is re-read after each entry to pick up new entries
-/// added by AssistStudio while the orchestrator is running.
+/// added while the orchestrator is running.
 /// </summary>
 internal static class ExecQueueRunner
 {
+    internal const string LockFileName = "orchestrator.lock";
+    internal const string QueueFileName = ".deferred-queue.json";
+
     /// <summary>
     /// Runs the exec-queue orchestrator. Returns 0 on success, 1 on failure.
     /// </summary>
-    public static async Task<int> RunAsync(string queueFilePath, bool verbose, ILoggerFactory loggerFactory)
+    /// <param name="queueFilePath">Path to the deferred queue JSON file.</param>
+    /// <param name="sweepAll">
+    /// When true, processes all entries including <c>deferred=true</c> ones.
+    /// Used by AssistStudio at app shutdown to flush the deferred queue.
+    /// When false (default), only <c>deferred=false</c> entries are processed.
+    /// </param>
+    /// <param name="verbose">Enable verbose logging.</param>
+    /// <param name="loggerFactory">Logger factory for creating loggers.</param>
+    public static async Task<int> RunAsync(
+        string queueFilePath, bool sweepAll, bool verbose, ILoggerFactory loggerFactory)
     {
         var logger = loggerFactory.CreateLogger("ExecQueue");
         var basePath = Path.GetDirectoryName(queueFilePath)!;
+        var lockFilePath = Path.Combine(basePath, LockFileName);
 
-        // Acquire PID lock
-        if (!TryAcquireLock(queueFilePath, logger))
+        if (!TryAcquireLock(lockFilePath, logger))
             return 0;
 
         try
@@ -45,9 +57,10 @@ internal static class ExecQueueRunner
                     break;
                 }
 
-                // Find next pending entry (not started, no error)
                 var entry = queue.Entries.FirstOrDefault(e =>
-                    e.StartedAt is null && e.LastError is null);
+                    e.StartedAt is null
+                    && e.LastError is null
+                    && (sweepAll || !e.Deferred));
 
                 if (entry is null)
                 {
@@ -56,23 +69,24 @@ internal static class ExecQueueRunner
                 }
 
                 var kbPath = Path.Combine(basePath, entry.KbId);
+                var configPath = Path.Combine(kbPath, "config.json");
+
+                // Logical deletion guard: config.json removed → skip + purge entry
+                if (!File.Exists(configPath))
+                {
+                    logger.LogInformation("KB {KbId} was deleted (config.json missing). Removing from queue.", entry.KbId);
+                    queue.Entries.RemoveAll(e => e.KbId == entry.KbId);
+                    SaveQueue(queueFilePath, queue);
+                    continue;
+                }
+
                 logger.LogInformation("Processing KB: {KbId} at {Path}", entry.KbId, kbPath);
 
-                // Mark as started
                 entry.StartedAt = DateTime.UtcNow.ToString("o");
                 SaveQueue(queueFilePath, queue);
 
                 try
                 {
-                    var configPath = Path.Combine(kbPath, "config.json");
-                    if (!File.Exists(configPath))
-                    {
-                        logger.LogWarning("config.json not found for {KbId}, skipping.", entry.KbId);
-                        entry.LastError = "config.json not found";
-                        SaveQueue(queueFilePath, queue);
-                        continue;
-                    }
-
                     var config = RagConfig.Load(kbPath);
                     var dbPath = Path.Combine(kbPath, "rag.db");
 
@@ -85,18 +99,16 @@ internal static class ExecQueueRunner
 
                     var engine = new IndexingEngine(kbPath, config, store, embeddingProvider, chunker, contextualizer, entryLogger);
 
-                    var force = entry.IsReindex && entry.PartialMode is null;
-                    var result = await engine.RunAsync(force, entry.PartialMode, CancellationToken.None);
+                    var result = await engine.RunAsync(entry.Force, entry.PartialMode, CancellationToken.None);
 
                     logger.LogInformation("KB {KbId} finished with exit code {Code} — {Indexed} indexed, {Failed} failed",
                         entry.KbId, result.ExitCode, result.Indexed, result.Failed);
 
-                    // Clean up cancel file
                     var cancelPath = Path.Combine(kbPath, "cancel");
                     if (File.Exists(cancelPath))
                         try { File.Delete(cancelPath); } catch { /* best-effort */ }
 
-                    // Remove completed entry
+                    // Re-read queue to pick up concurrent additions, then remove completed entry
                     queue = LoadQueue(queueFilePath) ?? queue;
                     queue.Entries.RemoveAll(e => e.KbId == entry.KbId);
                     SaveQueue(queueFilePath, queue);
@@ -118,68 +130,95 @@ internal static class ExecQueueRunner
         }
         finally
         {
-            ReleaseLock(queueFilePath, logger);
+            ReleaseLock(lockFilePath, queueFilePath, logger);
         }
     }
 
-    #region Lock Management
+    #region Orchestrator Lock (file-based)
 
-    private static bool TryAcquireLock(string queueFilePath, ILogger logger)
+    /// <summary>
+    /// Attempts to acquire the orchestrator lock via a separate lock file.
+    /// Defends against PID reuse by comparing <c>started_at</c> with the
+    /// process's actual <see cref="Process.StartTime"/>.
+    /// </summary>
+    internal static bool TryAcquireLock(string lockFilePath, ILogger logger)
     {
-        var queue = LoadQueue(queueFilePath);
-        if (queue is null) return false;
-
-        if (queue.Lock is not null)
+        if (File.Exists(lockFilePath))
         {
             try
             {
-                var existing = Process.GetProcessById(queue.Lock.Pid);
-                if (!existing.HasExited)
+                var json = File.ReadAllText(lockFilePath);
+                var existing = JsonSerializer.Deserialize(json, DeferredQueueJsonContext.Default.OrchestratorLock);
+
+                if (existing is not null && !IsLockStale(existing))
                 {
-                    logger.LogInformation("Another orchestrator (PID {Pid}) is running. Exiting.",
-                        queue.Lock.Pid);
+                    logger.LogInformation("Another orchestrator (PID {Pid}) is running. Exiting.", existing.Pid);
                     return false;
                 }
             }
-            catch (ArgumentException)
+            catch
             {
-                // Process not found — stale lock
+                // Corrupt lock file — treat as stale
             }
 
-            logger.LogInformation("Cleaning stale lock from PID {Pid}", queue.Lock.Pid);
+            logger.LogInformation("Cleaning stale orchestrator lock.");
         }
 
-        queue.Lock = new DeferredQueueLock
+        var lockData = new OrchestratorLock
         {
             Pid = Environment.ProcessId,
             StartedAt = DateTime.UtcNow.ToString("o"),
         };
-        SaveQueue(queueFilePath, queue);
+        var lockJson = JsonSerializer.Serialize(lockData, DeferredQueueJsonContext.Default.OrchestratorLock);
+        File.WriteAllText(lockFilePath, lockJson);
         return true;
     }
 
-    private static void ReleaseLock(string queueFilePath, ILogger logger)
+    /// <summary>
+    /// Checks whether an orchestrator lock is held by a dead or reused PID.
+    /// </summary>
+    private static bool IsLockStale(OrchestratorLock lockInfo)
     {
         try
         {
-            var queue = LoadQueue(queueFilePath);
-            if (queue is null) return;
+            var process = Process.GetProcessById(lockInfo.Pid);
+            if (process.HasExited) return true;
 
-            queue.Lock = null;
-
-            if (queue.Entries.Count == 0)
+            // PID reuse defense: compare started_at with actual process start time.
+            if (DateTime.TryParse(lockInfo.StartedAt, out var lockStarted))
             {
-                // Queue is empty — delete the file entirely
-                try { File.Delete(queueFilePath); } catch { /* best-effort */ }
+                var diff = Math.Abs((process.StartTime.ToUniversalTime() - lockStarted).TotalSeconds);
+                if (diff > 5) return true;
             }
-            else
+
+            return false;
+        }
+        catch (ArgumentException)
+        {
+            return true; // Process not found
+        }
+        catch (InvalidOperationException)
+        {
+            return true; // Process exited between checks
+        }
+    }
+
+    private static void ReleaseLock(string lockFilePath, string queueFilePath, ILogger logger)
+    {
+        try
+        {
+            File.Delete(lockFilePath);
+
+            // Clean up empty queue file
+            var queue = LoadQueue(queueFilePath);
+            if (queue is not null && queue.Entries.Count == 0)
             {
-                SaveQueue(queueFilePath, queue);
+                try { File.Delete(queueFilePath); } catch { /* best-effort */ }
             }
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to release lock.");
+            logger.LogWarning(ex, "Failed to release orchestrator lock.");
         }
     }
 
@@ -236,7 +275,7 @@ internal static class ExecQueueRunner
 
     #region Queue File I/O
 
-    private static DeferredQueue? LoadQueue(string path)
+    internal static DeferredQueue? LoadQueue(string path)
     {
         try
         {
@@ -250,7 +289,7 @@ internal static class ExecQueueRunner
         }
     }
 
-    private static void SaveQueue(string path, DeferredQueue queue)
+    internal static void SaveQueue(string path, DeferredQueue queue)
     {
         var json = JsonSerializer.Serialize(queue, DeferredQueueJsonContext.Default.DeferredQueue);
         File.WriteAllText(path, json);
@@ -265,12 +304,11 @@ internal static class ExecQueueRunner
 internal sealed class DeferredQueue
 {
     public int Version { get; set; } = 1;
-    public DeferredQueueLock? Lock { get; set; }
     public List<DeferredIndexEntry> Entries { get; set; } = [];
 }
 
-/// <summary>PID-based lock for the orchestrator.</summary>
-internal sealed class DeferredQueueLock
+/// <summary>PID-based lock stored in a separate orchestrator.lock file.</summary>
+internal sealed class OrchestratorLock
 {
     public int Pid { get; set; }
     public string StartedAt { get; set; } = "";
@@ -283,6 +321,8 @@ internal sealed class DeferredIndexEntry
     public string ScheduledAt { get; set; } = "";
     public bool IsReindex { get; set; }
     public string? PartialMode { get; set; }
+    public bool Force { get; set; }
+    public bool Deferred { get; set; }
     public string? StartedAt { get; set; }
     public string? LastError { get; set; }
 }
@@ -293,6 +333,7 @@ internal sealed class DeferredIndexEntry
     WriteIndented = true,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(DeferredQueue))]
+[JsonSerializable(typeof(OrchestratorLock))]
 internal sealed partial class DeferredQueueJsonContext : JsonSerializerContext;
 
 #endregion

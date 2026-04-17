@@ -13,9 +13,10 @@ public static class GetIndexInfoTool
 {
     [McpServerTool(Name = "get_index_info", ReadOnly = true, Destructive = false, Idempotent = true),
      Description(
-        "Internal tool for host application. Returns index metadata including " +
-        "file/chunk counts, indexing status, and prompt hash for " +
-        "stale-index detection. Do not call unless explicitly requested by the user.")]
+        "Returns index metadata for a knowledge base: file/chunk counts, indexing " +
+        "status, prompt hash for stale-index detection, and queue state " +
+        "(position, deferred, last_error). Use after start_reindex to poll for " +
+        "progress. The queue field shows pending/running/failed status.")]
     public static async Task<string> GetIndexInfo(
         MultiKbContext context,
         [Description("Knowledge base ID")]
@@ -56,11 +57,54 @@ public static class GetIndexInfoTool
         var runCompletedUtc = await store.GetMetadataAsync("last_run_completed_utc");
         var providerHealthStr = await store.GetMetadataAsync("last_provider_health");
 
+        // Queue state
+        var queueFilePath = Path.Combine(context.BasePath, ExecQueueRunner.QueueFileName);
+        var queue = ExecQueueRunner.LoadQueue(queueFilePath);
+        var queueEntry = queue?.Entries.FirstOrDefault(e => e.KbId == kb_id);
+
+        object? queueInfo = null;
+        string status;
+
+        if (lockInfo.IsIndexing)
+        {
+            status = "indexing";
+        }
+        else if (queueEntry is not null)
+        {
+            if (queueEntry.LastError is not null)
+            {
+                status = "failed";
+            }
+            else
+            {
+                status = "queued";
+            }
+
+            var pendingEntries = queue!.Entries
+                .Where(e => e.StartedAt is null && e.LastError is null)
+                .ToList();
+            var position = pendingEntries.FindIndex(e => e.KbId == kb_id) + 1;
+
+            queueInfo = new
+            {
+                position,
+                deferred = queueEntry.Deferred,
+                partial_mode = queueEntry.PartialMode,
+                scheduled_at = queueEntry.ScheduledAt,
+                last_error = queueEntry.LastError,
+            };
+        }
+        else
+        {
+            status = "ready";
+        }
+
         var result = new
         {
             kb_id,
             kb_name = kb.Config.Name,
             folder = kb.KbPath,
+            status,
             total_files = indexedPaths.Count,
             total_chunks = totalChunks,
             last_indexed_at = lastIndexedAt,
@@ -68,6 +112,7 @@ public static class GetIndexInfoTool
             indexing_progress = lockInfo.IsIndexing
                 ? new { current = lockInfo.Current, total = lockInfo.Total, pid = lockInfo.Pid }
                 : null,
+            queue = queueInfo,
             system_prompt = storedPrompt,
             effective_prompt_hash = storedHash,
             default_prompt_hash = defaultPromptHash,

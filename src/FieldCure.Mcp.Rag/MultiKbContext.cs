@@ -9,6 +9,19 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace FieldCure.Mcp.Rag;
 
+/// <summary>Classification result for a folder under the KB base path.</summary>
+public enum FolderClassification
+{
+    /// <summary>Active KB with valid config.json.</summary>
+    LiveKb,
+
+    /// <summary>Looks like a KB folder (GUID name) but has no config.json — safe to delete.</summary>
+    Orphan,
+
+    /// <summary>Protected: prefix-marked, backup, or non-GUID name — never touched.</summary>
+    Protected,
+}
+
 /// <summary>
 /// Manages multiple knowledge bases under a shared base path.
 /// Lazy-loads <see cref="KbInstance"/> per KB on first access.
@@ -16,11 +29,13 @@ namespace FieldCure.Mcp.Rag;
 /// </summary>
 public sealed class MultiKbContext : IDisposable
 {
-    readonly string _basePath;
     readonly ICredentialService _credentials;
     readonly Func<ProviderConfig, ICredentialService, IEmbeddingProvider> _embeddingFactory;
     readonly ILogger<MultiKbContext> _logger;
     readonly ConcurrentDictionary<string, KbInstance> _instances = new();
+
+    /// <summary>The root directory containing all KB folders.</summary>
+    public string BasePath { get; }
 
     public MultiKbContext(
         string basePath,
@@ -28,21 +43,72 @@ public sealed class MultiKbContext : IDisposable
         Func<ProviderConfig, ICredentialService, IEmbeddingProvider> embeddingFactory,
         ILogger<MultiKbContext>? logger = null)
     {
-        _basePath = basePath;
+        BasePath = basePath;
         _credentials = credentials;
         _embeddingFactory = embeddingFactory;
         _logger = logger ?? NullLogger<MultiKbContext>.Instance;
     }
 
     /// <summary>
+    /// Classifies a folder under the KB base path.
+    /// Shared by <see cref="ListKbs"/> and <see cref="OrphanCleanupRunner"/>.
+    /// </summary>
+    /// <remarks>
+    /// Protected folders (prefixed with <c>.</c> or <c>_</c>, or containing <c>-backup-</c>)
+    /// are never touched. A folder with <c>config.json</c> is a live KB; without it, an orphan.
+    /// <para>
+    /// The optional <paramref name="requireGuid"/> flag restricts orphan classification
+    /// to GUID-named folders only — used by <c>prune-orphans</c> to avoid deleting
+    /// unrelated directories. When false (default), any non-protected folder without
+    /// config.json is classified as orphan.
+    /// </para>
+    /// </remarks>
+    public static FolderClassification Classify(string folderPath, bool requireGuid = false)
+    {
+        var name = Path.GetFileName(folderPath);
+
+        if (name.StartsWith('.') || name.StartsWith('_'))
+            return FolderClassification.Protected;
+
+        if (name.Contains("-backup-", StringComparison.OrdinalIgnoreCase))
+            return FolderClassification.Protected;
+
+        if (requireGuid && !Guid.TryParse(name, out _))
+            return FolderClassification.Protected;
+
+        return File.Exists(Path.Combine(folderPath, "config.json"))
+            ? FolderClassification.LiveKb
+            : FolderClassification.Orphan;
+    }
+
+    /// <summary>
     /// Gets or creates a <see cref="KbInstance"/> for the given KB ID.
     /// Throws if the KB folder or config.json does not exist.
+    /// If config.json was deleted (logical KB deletion), evicts the cached
+    /// instance and throws <see cref="FileNotFoundException"/>.
     /// </summary>
     public KbInstance GetKb(string kbId)
     {
+        // Lazy unload: if a cached instance's config.json has been deleted,
+        // evict it so callers get a clean "not found" error.
+        if (_instances.TryGetValue(kbId, out var cached))
+        {
+            var configPath = Path.Combine(cached.KbPath, "config.json");
+            if (!File.Exists(configPath))
+            {
+                if (_instances.TryRemove(kbId, out var removed))
+                {
+                    removed.Dispose();
+                    _logger.LogInformation("Lazy-unloaded deleted KB {KbId}", kbId);
+                }
+                throw new FileNotFoundException($"Knowledge base was deleted: {kbId}");
+            }
+            return cached;
+        }
+
         return _instances.GetOrAdd(kbId, id =>
         {
-            var kbPath = Path.Combine(_basePath, id);
+            var kbPath = Path.Combine(BasePath, id);
             if (!Directory.Exists(kbPath))
                 throw new DirectoryNotFoundException($"Knowledge base not found: {id}");
 
@@ -61,48 +127,27 @@ public sealed class MultiKbContext : IDisposable
     }
 
     /// <summary>
-    /// Evicts a cached KB instance and disposes its SQLite connection.
-    /// No-op if the KB is not loaded. The next <see cref="GetKb"/> call
-    /// will lazy-reload it (or fail with "not found" if deleted).
-    /// </summary>
-    public void UnloadKb(string kbId)
-    {
-        if (_instances.TryRemove(kbId, out var removed))
-        {
-            removed.Dispose();
-            _logger.LogInformation("Unloaded KB {KbId}", kbId);
-        }
-    }
-
-    /// <summary>
     /// Lists all knowledge bases by scanning the base path for folders with config.json.
-    /// Applies four guards per folder (prefix, config.json existence, parseability,
-    /// id ↔ folder name match) to avoid misidentifying user backup folders or broken
-    /// copies as knowledge bases. Cleans up cached instances for deleted KBs.
+    /// Uses <see cref="Classify"/> for the initial folder filter, then applies
+    /// parseability and id ↔ folder name guards. Cleans up cached instances for deleted KBs.
     /// </summary>
     public IReadOnlyList<KbSummary> ListKbs()
     {
         var summaries = new List<KbSummary>();
 
-        if (!Directory.Exists(_basePath))
+        if (!Directory.Exists(BasePath))
             return summaries;
 
         var existingIds = new HashSet<string>();
 
-        foreach (var dir in Directory.GetDirectories(_basePath))
+        foreach (var dir in Directory.GetDirectories(BasePath))
         {
+            if (Classify(dir) != FolderClassification.LiveKb)
+                continue;
+
             var folderName = Path.GetFileName(dir);
 
-            // Guard 1: skip prefix-marked folders (backups, tmp, hidden) silently.
-            if (folderName.StartsWith('.') || folderName.StartsWith('_'))
-                continue;
-
-            // Guard 2: config.json must exist.
-            var configPath = Path.Combine(dir, "config.json");
-            if (!File.Exists(configPath))
-                continue;
-
-            // Guard 3: config.json must parse.
+            // Guard: config.json must parse.
             RagConfig config;
             try
             {
@@ -116,8 +161,7 @@ public sealed class MultiKbContext : IDisposable
                 continue;
             }
 
-            // Guard 4: folder name must match config.Id (case-insensitive).
-            // Mismatches usually indicate a copy/backup created outside the app.
+            // Guard: folder name must match config.Id (case-insensitive).
             if (!string.Equals(folderName, config.Id, StringComparison.OrdinalIgnoreCase))
             {
                 _logger.LogWarning(

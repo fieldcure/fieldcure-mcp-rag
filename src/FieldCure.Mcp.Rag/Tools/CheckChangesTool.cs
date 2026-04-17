@@ -16,14 +16,11 @@ public static class CheckChangesTool
 {
     [McpServerTool(Name = "check_changes", ReadOnly = true, Destructive = false, Idempotent = true),
      Description(
-        "Internal tool for host application. Compares source files on disk against " +
-        "the index to detect added, modified, and deleted files. " +
-        "Does not modify the index. Do not call unless explicitly requested by the user. " +
-        "Also detects DB schema staleness — if the KB was indexed with an older " +
-        "schema version, is_schema_stale will be true and re-indexing will trigger " +
-        "automatic migration through the exec path. The KB still serves search " +
-        "queries correctly while stale; only new features (e.g., per-chunk status " +
-        "tracking) are inactive until migration.")]
+        "Compares source files on disk against the index to detect added, modified, " +
+        "and deleted files. Does not modify the index. Lightweight metadata-only " +
+        "operation (no GPU, no API calls). Use before start_reindex to determine " +
+        "if re-indexing is needed. Also detects DB schema staleness and " +
+        "contextualization degradation.")]
     public static async Task<string> CheckChanges(
         MultiKbContext context,
         [Description("Knowledge base ID")]
