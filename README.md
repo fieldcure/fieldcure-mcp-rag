@@ -3,6 +3,8 @@
 [![NuGet](https://img.shields.io/nuget/v/FieldCure.Mcp.Rag)](https://www.nuget.org/packages/FieldCure.Mcp.Rag)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/fieldcure/fieldcure-mcp-rag/blob/main/LICENSE)
 
+> **Windows only** — credential storage uses Windows Credential Manager (`advapi32.dll`). Cross-platform support is planned via a shared credential abstraction package.
+
 A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server for indexing and searching local document collections. Supports DOCX, HWPX, PDF (with OCR), Excel, and PowerPoint, with hybrid keyword + semantic search optimized for Korean and English.
 
 Built with C# and the official [MCP C# SDK](https://github.com/modelcontextprotocol/csharp-sdk).
