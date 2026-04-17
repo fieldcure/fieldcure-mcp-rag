@@ -8,19 +8,19 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>1.5.0</Version>
+    <Version>2.0.0</Version>
     <PackageId>FieldCure.Mcp.Rag</PackageId>
 
     <Authors>Jong Hyun Kim</Authors>
     <Company>Fieldcure Co., Ltd.</Company>
     <Copyright>Copyright (c) 2026 Fieldcure Co., Ltd.</Copyright>
-    <Description>MCP RAG server with hybrid BM25 + vector search and AI-powered chunk contextualization. Chunks documents, enriches chunks with AI-generated context and keywords, generates embeddings, and performs keyword (FTS5) and semantic (cosine similarity) search with Reciprocal Rank Fusion. Windows only. Cross-platform support planned.</Description>
+    <Description>MCP RAG server with hybrid BM25 + vector search and AI-powered chunk contextualization. Chunks documents, enriches chunks with AI-generated context and keywords, generates embeddings, and performs keyword (FTS5) and semantic (cosine similarity) search with Reciprocal Rank Fusion.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/fieldcure/fieldcure-mcp-rag</PackageProjectUrl>
     <RepositoryUrl>https://github.com/fieldcure/fieldcure-mcp-rag</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>mcp;mcp-server;ai;dotnet;rag;embedding;vector-search;knowledge-base;bm25</PackageTags>
-    <PackageReleaseNotes>v1.5.0: Partial re-index (--partial=contextualization|embedding), chunker pre-validation, search_mode parameter, unload_kb tool, embedding batch size optimization, contextualization diagnostics, and counter semantics cleanup.</PackageReleaseNotes>
+    <PackageReleaseNotes>v2.0.0: Queue-based indexing orchestrator (start_reindex, cancel_reindex), Ollama native providers (keep_alive, num_ctx), prune-orphans CLI, cross-platform (CredentialService removed). Breaking: unload_kb removed, API keys via environment variables.</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>Logo.png</PackageIcon>
 

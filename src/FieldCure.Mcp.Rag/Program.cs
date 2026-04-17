@@ -1,5 +1,7 @@
 ﻿using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
+using FieldCure.DocumentParsers.Pdf;
 using FieldCure.DocumentParsers.Pdf.Ocr;
 using FieldCure.Mcp.Rag;
 using FieldCure.Mcp.Rag.Chunking;
@@ -12,8 +14,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-// Register PDF parser with OCR fallback for scanned PDFs
-using var ocrEngine = DocumentParserFactoryOcrExtensions.AddPdfOcrSupport();
+// Register PDF parser. OCR is loaded lazily on first scanned page (Windows only).
+DocumentParserFactoryExtensions.AddPdfSupport(new LazyOcrEngine());
+
 
 if (args.Length > 0)
 {

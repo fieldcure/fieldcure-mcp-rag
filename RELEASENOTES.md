@@ -1,5 +1,43 @@
 ﻿# Release Notes
 
+## v2.0.0 (2026-04-17)
+
+### Breaking
+
+- **`unload_kb` tool removed** — KB cache eviction is now lazy (config.json deletion triggers automatic cleanup on next access)
+- **API keys via environment variables** — `CredentialService` (Windows Credential Manager P/Invoke) removed. API keys are resolved from environment variables (e.g., `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`). AssistStudio injects them from PasswordVault into child process environments. Standalone callers set env vars directly.
+- **`ChannelFactory.Create()` no longer requires `CredentialManager`** parameter
+
+### Added
+
+- **Queue-based indexing orchestrator** — all indexing requests flow through `start_reindex` MCP tool. Single orchestrator processes entries sequentially (no GPU contention). Scope merge rules (full ⊃ contextualization ⊃ embedding), force/deferred flags, PID-based lock with reuse defense.
+- **`cancel_reindex` tool** — removes pending queue entries via MCP
+- **`prune-orphans` CLI** — deletes orphan KB folders (GUID-named, no config.json). Protected folders (`.`, `_` prefix, `-backup-`) never touched.
+- **`--sweep-all` flag for `exec-queue`** — processes deferred entries too (used at app shutdown)
+- **Ollama native embedding provider** — `OllamaEmbeddingProvider` calls `/api/embed` (not `/v1/embeddings` shim) with `keep_alive` parameter. Requires Ollama 0.4.0+.
+- **Ollama native contextualizer** — `OllamaChunkContextualizer` calls `/api/chat` with `keep_alive` and `options.num_ctx`. 10-minute HttpClient timeout for cold model loads.
+- **`OllamaDefaults`** — `KeepAlive = "5m"`, `NumCtx = 8192` constants
+- **`ProviderConfig.KeepAlive` / `NumCtx`** — per-KB override for Ollama parameters in config.json
+- **`FolderClassification` + `Classify()`** — shared folder classification for `ListKbs` and `prune-orphans`
+- **`MultiKbContext.BasePath`** — public read-only property
+- **Lazy unload in `GetKb()`** — detects config.json deletion and auto-evicts cached instance
+
+### Changed
+
+- **`get_index_info` includes queue state** — `status` field (`ready`/`queued`/`indexing`/`failed`), `queue` object with position/deferred/last_error
+- **`check_changes` / `get_index_info` promoted to AI-visible** — "Internal tool" / "Do not call" removed from descriptions
+- **Orchestrator lock → separate file** — `orchestrator.lock` (PID + started_at) instead of embedded in queue JSON. PID reuse defense via `Process.StartTime` comparison.
+- **Cross-platform** — `net8.0` TFM is no longer misleading; `#pragma warning disable CA1416` removed. Tesseract OCR loads lazily on first scanned PDF (Windows only); non-Windows platforms silently skip scanned pages but process text-layer PDFs normally.
+
+### Removed
+
+- `CredentialService.cs`, `ICredentialService.cs` (Windows Credential Manager P/Invoke)
+- `EmbeddingProviderFactory.cs` (dead code, never called)
+- `UnloadKbTool.cs`
+- `DeferredQueueLock` from queue JSON (moved to `orchestrator.lock` file)
+
+---
+
 ## v1.5.0 (2026-04-16)
 
 ### Added

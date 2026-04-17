@@ -1,24 +1,26 @@
-# FieldCure MCP RAG Server
+﻿# FieldCure MCP RAG Server
 
 [![NuGet](https://img.shields.io/nuget/v/FieldCure.Mcp.Rag)](https://www.nuget.org/packages/FieldCure.Mcp.Rag)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/fieldcure/fieldcure-mcp-rag/blob/main/LICENSE)
-
-> **Windows only** — credential storage uses Windows Credential Manager (`advapi32.dll`). Cross-platform support is planned via a shared credential abstraction package.
 
 A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server for indexing and searching local document collections. Supports DOCX, HWPX, PDF (with OCR), Excel, and PowerPoint, with hybrid keyword + semantic search optimized for Korean and English.
 
 Built with C# and the official [MCP C# SDK](https://github.com/modelcontextprotocol/csharp-sdk).
 
-## Two Commands
+## Commands
 
 ```
 fieldcure-mcp-rag
-├── exec  --path <kb-path> [--force] [--partial contextualization|embedding]
-└── serve --base-path <path>           # Multi-KB MCP search server (stdio)
+├── serve         --base-path <path>                         # Multi-KB MCP search server (stdio)
+├── exec          --path <kb-path> [--force] [--partial ...]  # Headless indexing for a single KB
+├── exec-queue    --queue-file <path> [--sweep-all]           # Process deferred indexing queue
+└── prune-orphans --base-path <path>                         # Delete orphan KB folders
 ```
 
-- **exec** — scans source folders, chunks documents, contextualizes with AI, embeds, stores in SQLite. Runs as a detached process. `--partial` re-runs only downstream stages when models change, preserving OCR output.
 - **serve** — read-only MCP server serving all knowledge bases under the base path. Single process handles multiple KBs via `kb_id` parameter. Can run while exec is indexing (SQLite WAL).
+- **exec** — scans source folders, chunks documents, contextualizes with AI, embeds, stores in SQLite. `--partial` re-runs only downstream stages when models change, preserving OCR output.
+- **exec-queue** — sequential orchestrator consuming a deferred indexing queue. One entry at a time, no GPU contention. `--sweep-all` processes deferred entries too (used at app shutdown).
+- **prune-orphans** — deletes orphan KB folders (GUID-named, no config.json). Protected folders (`.`, `_` prefix, `-backup-`) are never touched.
 
 ## Features
 
@@ -38,16 +40,24 @@ fieldcure-mcp-rag
 - Cross-process indexing lock with stale PID auto-cleanup
 - Orphan cleanup for deleted files
 
+### Queue Orchestrator
+- All indexing requests flow through `start_reindex` MCP tool — no direct exec spawn
+- Scope merge rules: full ⊃ contextualization ⊃ embedding (duplicate requests upgrade, not duplicate)
+- PID-based orchestrator lock with reuse defense (`orchestrator.lock`)
+- Logical KB deletion (config.json removal) + `prune-orphans` physical cleanup
+- Deferred indexing for app-shutdown batch processing (`--sweep-all`)
+
 ### Operations
-- exec/serve dual mode — headless indexing + read-only search server
 - Multi-KB serve: single process serves all knowledge bases under a base path, lazy-loaded per KB
 - SQLite WAL mode allows search during indexing
 - Graceful shutdown via `cancel` file
-- Per-KB `config.json` with credential presets
+- Per-KB `config.json` with provider configuration
 
 ### Integration
-- OpenAI-compatible embeddings — works with Ollama, LM Studio, OpenAI, Azure OpenAI, Groq, Together AI
-- Windows Credential Manager (PasswordVault) for API keys, shared with AssistStudio
+- **Ollama native** — embedding via `/api/embed`, contextualization via `/api/chat` with `keep_alive` and `num_ctx` support. Requires Ollama 0.4.0+.
+- **OpenAI-compatible** — embedding via `/v1/embeddings`, contextualization via `/v1/chat/completions`. Works with OpenAI, Azure OpenAI, Groq, LM Studio, Together AI.
+- **Anthropic** — contextualization via `/v1/messages`.
+- **API keys via environment variables** — `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc. When spawned by AssistStudio, keys are injected from PasswordVault into the child process environment.
 - Standard MCP stdio transport (JSON-RPC over stdin/stdout)
 
 ## Chunk Contextualization
@@ -102,8 +112,6 @@ EmbedBatch([0..1249])         → 400 "input[846] too long"
 
 Result: 1249 chunks indexed, only chunk 846 marked `Failed`. The file's status becomes `Degraded` — partially searchable instead of completely missing.
 
-This works without parsing provider-specific error messages and adds zero cost to the happy path (single API call when all chunks succeed). For a file with N chunks and one failure, expect roughly `2 × log₂(N)` API calls.
-
 ### Deferred Retry Pass
 
 Each `exec` ends with a retry pass over any chunks left in `PendingEmbedding` state from previous runs:
@@ -114,8 +122,6 @@ Each `exec` ends with a retry pass over any chunks left in `PendingEmbedding` st
 - Auth errors (401/403) flag the provider as unavailable and skip the rest of the pass
 
 ### File States
-
-The `file_index` table tracks each file's overall state. Hash-skip behavior depends on status:
 
 | Status | Meaning | Hash-skip behavior |
 |--------|---------|-------------------|
@@ -128,28 +134,6 @@ The `file_index` table tracks each file's overall state. Hash-skip behavior depe
 ### Schema Versioning
 
 Each KB DB carries a `PRAGMA user_version` tag. The `exec` command migrates older schemas automatically as part of `InitializeSchema()`. The `serve` command opens DBs read-only and never triggers migration — older-schema KBs continue to serve search queries correctly while their new-feature columns remain unused.
-
-The `check_changes` tool reports `is_schema_stale: true` when a re-index would trigger schema migration. This appears to host applications (e.g., AssistStudio) as a "changes detected" signal in the same channel as content changes — a single user action ("re-index") handles both.
-
-### Logging
-
-Indexing emits a structured timing log per `exec` run at `%LOCALAPPDATA%\FieldCure\Mcp.Rag\{kb-id}\index_timing.log`:
-
-```
---- 2026-04-16 17:31:39 force=False files=12 ---
-Run:    indexed=0 skipped=11 removed=0 chunks=0 elapsed=85ms
-State:  failed=0 degraded=1 deferred=0 needsAction=0
-```
-
-Binary-split events are logged at Info level (lifecycle: `start`/`done`) and Warning level (terminal per-chunk failures). Per-depth trace requires `--verbose` flag:
-
-```bash
-fieldcure-mcp-rag exec --path <kb-path> --verbose
-```
-
-### Concurrent Indexing
-
-Different KBs can be indexed in parallel — each runs as a separate `exec` process against its own SQLite database. The same KB is protected by the `_indexing_lock` table, so a second `exec` against an already-running KB exits immediately with code 1. Resource contention (embedding API rate limits, GPU VRAM when multiple Ollama models are loaded, disk I/O) is currently unmanaged; for 5+ concurrent KBs, consider sequential indexing or staggered starts.
 
 ## Installation
 
@@ -170,7 +154,7 @@ dotnet build
 ## Requirements
 
 - [.NET 8.0 Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) or later
-- **Windows x64 only** — Tesseract OCR native binaries are bundled for x64
+- **OCR: Windows x64 only** — Tesseract OCR for scanned PDFs loads lazily on first use (Windows only). On other platforms, PDFs with embedded text work normally; scanned pages without a text layer are silently skipped.
 - An embedding provider (Ollama, OpenAI, etc.) — optional, BM25 search works without it
 - [Ollama](https://ollama.ai) 0.4.0 or later (if using Ollama for embedding or contextualization)
 
@@ -229,6 +213,8 @@ For full retrieval quality with semantic search and contextualization, add `embe
 }
 ```
 
+API keys are resolved from environment variables: `apiKeyPreset: "OpenAI"` → `OPENAI_API_KEY`, `"Claude"` → `ANTHROPIC_API_KEY`.
+
 ### 2. Index documents
 
 ```bash
@@ -252,7 +238,11 @@ Add to `claude_desktop_config.json`:
   "mcpServers": {
     "rag": {
       "command": "fieldcure-mcp-rag",
-      "args": ["serve", "--base-path", "C:\\Users\\me\\AppData\\Local\\FieldCure\\Mcp.Rag"]
+      "args": ["serve", "--base-path", "C:\\Users\\me\\AppData\\Local\\FieldCure\\Mcp.Rag"],
+      "env": {
+        "OPENAI_API_KEY": "sk-...",
+        "ANTHROPIC_API_KEY": "sk-ant-..."
+      }
     }
   }
 }
@@ -267,11 +257,13 @@ Add to `claude_desktop_config.json`:
 | `sourcePaths` | List of folders to index (multiple supported) |
 | `contextualizer.provider` | `"anthropic"`, `"openai"`, `"ollama"`, or empty to disable |
 | `contextualizer.model` | Model ID, or empty to disable contextualization |
-| `contextualizer.apiKeyPreset` | PasswordVault preset name (e.g., `"Claude"`) |
+| `contextualizer.apiKeyPreset` | Maps to env var: `"OpenAI"` → `OPENAI_API_KEY`, `"Claude"` → `ANTHROPIC_API_KEY` |
 | `contextualizer.baseUrl` | API base URL override (null = provider default) |
 | `embedding.*` | Same structure as contextualizer |
 | `embedding.maxChunkChars` | Max chars per chunk before pre-split (default: 4000) |
 | `embedding.batchSize` | Max chunks per embedding API call (default: auto from provider table) |
+| `embedding.keepAlive` | Ollama only: VRAM retention duration (default: `"5m"`) |
+| `embedding.numCtx` | Ollama only: context window tokens (default: 8192). Contextualizer only. |
 | `systemPrompt` | Custom system prompt for contextualization (null = built-in default) |
 
 ## Tools
@@ -283,21 +275,18 @@ All tools (except `list_knowledge_bases`) require a `kb_id` parameter to specify
 | `list_knowledge_bases` | List all available KBs with status (file/chunk counts, indexing status) |
 | `search_documents` | Hybrid BM25 + vector search with RRF. Supports `search_mode`: `auto`, `bm25`, `vector` |
 | `get_document_chunk` | Retrieve full content of a specific chunk by ID |
-| `get_index_info` | Index metadata including contextualization health stats. *Internal — host application use* |
-| `check_changes` | Dry-run filesystem scan with `is_contextualization_degraded` flag. *Internal — host application use* |
-| `unload_kb` | Release SQLite handles for a KB before deletion. *Internal — host application use* |
+| `start_reindex` | Queue an indexing request. Scope merge, force/deferred flags, orchestrator auto-spawn |
+| `cancel_reindex` | Remove a pending (not-yet-started) queue entry |
+| `get_index_info` | Index metadata, queue state (status/position/deferred/last_error), contextualization health |
+| `check_changes` | Dry-run filesystem scan. Lightweight, no API calls |
 
 ### Search Modes
-
-The `search_mode` parameter (default `auto`) controls the search strategy:
 
 | `search_mode` | Behavior |
 |---------------|----------|
 | `auto` | Hybrid when embedding available, else BM25. Recommended |
 | `bm25` | Keyword-only (FTS5). No embedding call |
 | `vector` | Semantic-only. Errors if no embedding provider |
-
-When `auto`, the actual mode depends on provider availability and query tokens.
 
 ### Supported Formats
 
@@ -310,53 +299,48 @@ Document formats are provided by [FieldCure.DocumentParsers](https://github.com/
 - **PDF** — PDF text extraction with `## Page N` headers; OCR fallback for scanned pages (Tesseract, eng+kor)
 - **TXT, MD** — Plain text / Markdown
 
-Additional formats are automatically supported when new parsers are registered.
-
 ## Project Structure
 
 ```
 src/FieldCure.Mcp.Rag/
-├── Program.cs                  # CLI entry (exec | serve)
-├── MultiKbContext.cs           # Multi-KB manager (lazy load, cache, cleanup)
+├── Program.cs                     # CLI entry (exec | exec-queue | serve | prune-orphans)
+├── MultiKbContext.cs              # Multi-KB manager (lazy load, Classify, lazy unload)
+├── ExecQueueRunner.cs             # Deferred queue orchestrator
+├── OrphanCleanupRunner.cs         # prune-orphans CLI
 ├── Configuration/
-│   └── RagConfig.cs            # config.json model
-├── Credentials/
-│   ├── ICredentialService.cs   # PasswordVault abstraction
-│   └── CredentialService.cs    # Windows Credential Manager P/Invoke
+│   ├── RagConfig.cs               # config.json model (KeepAlive, NumCtx fields)
+│   └── OllamaDefaults.cs          # Shared defaults (KeepAlive="5m", NumCtx=8192)
 ├── Indexing/
-│   ├── IndexingEngine.cs       # Headless indexing pipeline (2-commit model)
+│   ├── IndexingEngine.cs          # 5-stage pipeline (2-commit model)
 │   └── EmbeddingBatchSplitter.cs  # Binary-split per-chunk failure isolation
 ├── Contextualization/
 │   ├── IChunkContextualizer.cs
-│   ├── NullChunkContextualizer.cs
-│   ├── ChunkContextualizerHelper.cs
-│   ├── OpenAiChunkContextualizer.cs
-│   └── AnthropicChunkContextualizer.cs
+│   ├── OpenAiChunkContextualizer.cs   # /v1/chat/completions
+│   ├── OllamaChunkContextualizer.cs   # /api/chat (keep_alive + num_ctx)
+│   ├── AnthropicChunkContextualizer.cs
+│   └── NullChunkContextualizer.cs
 ├── Embedding/
 │   ├── IEmbeddingProvider.cs
-│   ├── OpenAiCompatibleEmbeddingProvider.cs
+│   ├── OpenAiCompatibleEmbeddingProvider.cs  # /v1/embeddings
+│   ├── OllamaEmbeddingProvider.cs            # /api/embed (keep_alive)
 │   ├── NullEmbeddingProvider.cs
-│   └── EmbeddingBatchSizes.cs  # Known-good batch sizes per provider/model
+│   └── EmbeddingBatchSizes.cs
 ├── Storage/
-│   └── SqliteVectorStore.cs    # SQLite + FTS5 BM25 + SIMD cosine similarity
+│   └── SqliteVectorStore.cs       # SQLite + FTS5 + SIMD cosine similarity
 ├── Search/
-│   ├── HybridSearcher.cs       # BM25 + Vector → RRF orchestration
-│   └── RrfFusion.cs            # Reciprocal Rank Fusion (k=60)
+│   ├── HybridSearcher.cs          # BM25 + Vector → RRF
+│   └── RrfFusion.cs
 ├── Chunking/
-│   ├── TextChunker.cs          # Korean/English sentence-aware chunking
-│   └── ChunkLimits.cs          # Character-based chunk size bounds
-├── Tools/
-│   ├── ListKnowledgeBasesTool.cs # KB listing
-│   ├── SearchDocumentsTool.cs    # Hybrid search with mode selection
-│   ├── GetDocumentChunkTool.cs   # Chunk retrieval
-│   ├── GetIndexInfoTool.cs       # Index metadata
-│   ├── CheckChangesTool.cs       # Dry-run file change detection
-│   └── UnloadKbTool.cs          # KB handle release for deletion
-└── Models/
-    ├── DocumentChunk.cs
-    ├── SearchResult.cs
-    ├── HybridSearchResult.cs
-    └── SearchMode.cs
+│   ├── TextChunker.cs
+│   └── ChunkLimits.cs
+└── Tools/
+    ├── ListKnowledgeBasesTool.cs
+    ├── SearchDocumentsTool.cs
+    ├── GetDocumentChunkTool.cs
+    ├── StartReindexTool.cs        # Queue entry point + orchestrator spawn
+    ├── CancelReindexTool.cs       # Remove pending queue entry
+    ├── GetIndexInfoTool.cs        # Includes queue state
+    └── CheckChangesTool.cs
 ```
 
 ## Data Storage
@@ -364,6 +348,10 @@ src/FieldCure.Mcp.Rag/
 Knowledge base data is stored at `%LOCALAPPDATA%\FieldCure\Mcp.Rag\{kb-id}\`:
 - `config.json` — knowledge base configuration
 - `rag.db` — SQLite database (chunks, embeddings, FTS5 index, file hashes, indexing lock)
+
+Queue and lock files at `%LOCALAPPDATA%\FieldCure\Mcp.Rag\`:
+- `.deferred-queue.json` — pending indexing requests
+- `orchestrator.lock` — PID lock for the queue orchestrator
 
 ## Development
 
