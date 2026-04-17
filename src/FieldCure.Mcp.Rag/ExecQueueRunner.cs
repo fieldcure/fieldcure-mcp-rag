@@ -1,12 +1,9 @@
-#pragma warning disable CA1416 // Platform compatibility — this tool targets Windows (AssistStudio integration)
-
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using FieldCure.Mcp.Rag.Chunking;
 using FieldCure.Mcp.Rag.Configuration;
 using FieldCure.Mcp.Rag.Contextualization;
-using FieldCure.Mcp.Rag.Credentials;
 using FieldCure.Mcp.Rag.Embedding;
 using FieldCure.Mcp.Rag.Indexing;
 using FieldCure.Mcp.Rag.Storage;
@@ -91,11 +88,10 @@ internal static class ExecQueueRunner
                     var dbPath = Path.Combine(kbPath, "rag.db");
 
                     var entryLogger = loggerFactory.CreateLogger<IndexingEngine>();
-                    var credentials = new CredentialService();
                     using var store = new SqliteVectorStore(dbPath);
                     var chunker = new TextChunker(maxChars: config.Embedding.MaxChunkChars);
-                    var embeddingProvider = CreateEmbeddingProvider(config.Embedding, credentials);
-                    var contextualizer = CreateContextualizer(config.Contextualizer, credentials, loggerFactory);
+                    var embeddingProvider = CreateEmbeddingProvider(config.Embedding);
+                    var contextualizer = CreateContextualizer(config.Contextualizer, loggerFactory);
 
                     var engine = new IndexingEngine(kbPath, config, store, embeddingProvider, chunker, contextualizer, entryLogger);
 
@@ -226,14 +222,12 @@ internal static class ExecQueueRunner
 
     #region Provider Factories
 
-    private static IEmbeddingProvider CreateEmbeddingProvider(ProviderConfig config, ICredentialService credentials)
+    private static IEmbeddingProvider CreateEmbeddingProvider(ProviderConfig config)
     {
         if (string.IsNullOrEmpty(config.Model))
             return new NullEmbeddingProvider();
 
-        var apiKey = config.ApiKeyPreset is not null
-            ? credentials.GetApiKey(config.ApiKeyPreset) ?? ""
-            : "";
+        var apiKey = ResolveApiKey(config.ApiKeyPreset);
 
         var baseUrl = config.BaseUrl ?? config.Provider.ToLowerInvariant() switch
         {
@@ -252,14 +246,12 @@ internal static class ExecQueueRunner
     }
 
     private static IChunkContextualizer CreateContextualizer(
-        ProviderConfig config, ICredentialService credentials, ILoggerFactory loggerFactory)
+        ProviderConfig config, ILoggerFactory loggerFactory)
     {
         if (string.IsNullOrEmpty(config.Model))
             return new NullChunkContextualizer();
 
-        var apiKey = config.ApiKeyPreset is not null
-            ? credentials.GetApiKey(config.ApiKeyPreset) ?? ""
-            : "";
+        var apiKey = ResolveApiKey(config.ApiKeyPreset);
 
         var baseUrl = config.BaseUrl ?? config.Provider.ToLowerInvariant() switch
         {
@@ -282,6 +274,28 @@ internal static class ExecQueueRunner
 
         return new OpenAiChunkContextualizer(
             baseUrl, config.Model, apiKey, logger: loggerFactory.CreateLogger<OpenAiChunkContextualizer>());
+    }
+
+    #endregion
+
+    #region Queue File I/O
+
+    private static string ResolveApiKey(string? presetName)
+    {
+        if (string.IsNullOrEmpty(presetName))
+            return "";
+
+        var envVarName = presetName.ToUpperInvariant() switch
+        {
+            "OPENAI" => "OPENAI_API_KEY",
+            "CLAUDE" or "ANTHROPIC" => "ANTHROPIC_API_KEY",
+            "GEMINI" or "GOOGLE" => "GEMINI_API_KEY",
+            "VOYAGE" => "VOYAGE_API_KEY",
+            "GROQ" => "GROQ_API_KEY",
+            _ => $"{presetName.ToUpperInvariant()}_API_KEY",
+        };
+
+        return Environment.GetEnvironmentVariable(envVarName) ?? "";
     }
 
     #endregion

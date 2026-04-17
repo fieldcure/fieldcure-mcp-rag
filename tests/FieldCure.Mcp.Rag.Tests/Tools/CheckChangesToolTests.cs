@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using FieldCure.Mcp.Rag.Configuration;
-using FieldCure.Mcp.Rag.Credentials;
+
 using FieldCure.Mcp.Rag.Embedding;
 using FieldCure.Mcp.Rag.Models;
 using FieldCure.Mcp.Rag.Storage;
@@ -13,11 +13,6 @@ namespace FieldCure.Mcp.Rag.Tests.Tools;
 [TestClass]
 public class CheckChangesToolTests
 {
-    sealed class StubCredentialService : ICredentialService
-    {
-        public string? GetApiKey(string presetName) => null;
-    }
-
     sealed class StubEmbeddingProvider : IEmbeddingProvider
     {
         public int Dimension => 2;
@@ -27,7 +22,7 @@ public class CheckChangesToolTests
             => Task.FromResult(new float[] { 1f, 0f });
     }
 
-    static IEmbeddingProvider StubEmbedding(ProviderConfig cfg, ICredentialService creds)
+    static IEmbeddingProvider StubEmbedding(ProviderConfig cfg)
         => new StubEmbeddingProvider();
 
     static string CreateBasePath()
@@ -113,7 +108,7 @@ public class CheckChangesToolTests
     {
         var (basePath, kbId) = await CreateCleanKbAsync();
 
-        using var ctx = new MultiKbContext(basePath, new StubCredentialService(), StubEmbedding);
+        using var ctx = new MultiKbContext(basePath, StubEmbedding);
         var json = await CheckChangesTool.CheckChanges(ctx, kbId);
 
         using var doc = JsonDocument.Parse(json);
@@ -196,7 +191,7 @@ public class CheckChangesToolTests
         // Sanity: the legacy DB is actually untagged.
         Assert.AreEqual(0, SqliteVectorStore.ReadUserVersion(dbPath));
 
-        using var ctx = new MultiKbContext(basePath, new StubCredentialService(), StubEmbedding);
+        using var ctx = new MultiKbContext(basePath, StubEmbedding);
         var json = await CheckChangesTool.CheckChanges(ctx, kbId);
 
         using var doc = JsonDocument.Parse(json);
@@ -225,7 +220,7 @@ public class CheckChangesToolTests
         var sourceFile = Path.Combine(basePath, "sources", "doc.txt");
         await File.WriteAllTextAsync(sourceFile, "Hello world — updated");
 
-        using var ctx = new MultiKbContext(basePath, new StubCredentialService(), StubEmbedding);
+        using var ctx = new MultiKbContext(basePath, StubEmbedding);
         var json = await CheckChangesTool.CheckChanges(ctx, kbId);
 
         using var doc = JsonDocument.Parse(json);

@@ -1,6 +1,6 @@
 using System.Text.Json;
 using FieldCure.Mcp.Rag.Configuration;
-using FieldCure.Mcp.Rag.Credentials;
+
 using FieldCure.Mcp.Rag.Embedding;
 using FieldCure.Mcp.Rag.Storage;
 using Microsoft.Data.Sqlite;
@@ -10,12 +10,7 @@ namespace FieldCure.Mcp.Rag.Tests;
 [TestClass]
 public class MultiKbContextTests
 {
-    sealed class StubCredentialService : ICredentialService
-    {
-        public string? GetApiKey(string presetName) => null;
-    }
-
-    static IEmbeddingProvider NoEmbedding(ProviderConfig cfg, ICredentialService creds)
+    static IEmbeddingProvider NoEmbedding(ProviderConfig cfg)
         => throw new InvalidOperationException("Embedding factory must not be invoked during ListKbs tests.");
 
     static string CreateBasePath()
@@ -49,7 +44,7 @@ public class MultiKbContextTests
     }
 
     static MultiKbContext NewContext(string basePath)
-        => new(basePath, new StubCredentialService(), NoEmbedding);
+        => new(basePath, NoEmbedding);
 
     [TestMethod]
     public void ListKbs_EmptyBasePath_ReturnsEmpty()

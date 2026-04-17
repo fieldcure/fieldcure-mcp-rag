@@ -5,15 +5,12 @@ using FieldCure.Mcp.Rag;
 using FieldCure.Mcp.Rag.Chunking;
 using FieldCure.Mcp.Rag.Configuration;
 using FieldCure.Mcp.Rag.Contextualization;
-using FieldCure.Mcp.Rag.Credentials;
 using FieldCure.Mcp.Rag.Embedding;
 using FieldCure.Mcp.Rag.Indexing;
 using FieldCure.Mcp.Rag.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-
-#pragma warning disable CA1416 // Platform compatibility — this tool targets Windows (AssistStudio integration)
 
 // Register PDF parser with OCR fallback for scanned PDFs
 using var ocrEngine = DocumentParserFactoryOcrExtensions.AddPdfOcrSupport();
@@ -44,8 +41,6 @@ async Task<int> RunServeAsync(string[] args)
     var basePath = ParseArg(args, "--base-path");
     if (basePath is null) return PrintUsage();
 
-    var credentials = new CredentialService();
-
     var builder = Host.CreateApplicationBuilder(Array.Empty<string>());
 
     builder.Logging.ClearProviders();
@@ -54,13 +49,9 @@ async Task<int> RunServeAsync(string[] args)
         options.LogToStandardErrorThreshold = LogLevel.Trace;
     });
 
-    // MultiKbContext is built via the DI container so it receives
-    // ILogger<MultiKbContext> from the host's logging pipeline.
-    // The host disposes singletons on shutdown, so no explicit Dispose is needed.
     builder.Services
         .AddSingleton(sp => new MultiKbContext(
             basePath,
-            credentials,
             CreateEmbeddingProvider,
             sp.GetRequiredService<ILogger<MultiKbContext>>()))
         .AddMcpServer(options =>
@@ -112,11 +103,10 @@ async Task<int> RunExecAsync(string[] args)
     });
 
     var logger = loggerFactory.CreateLogger<IndexingEngine>();
-    var credentials = new CredentialService();
     var store = new SqliteVectorStore(dbPath);
     var chunker = new TextChunker(maxChars: config.Embedding.MaxChunkChars);
-    var embeddingProvider = CreateEmbeddingProvider(config.Embedding, credentials);
-    var contextualizer = CreateContextualizer(config.Contextualizer, credentials, loggerFactory);
+    var embeddingProvider = CreateEmbeddingProvider(config.Embedding);
+    var contextualizer = CreateContextualizer(config.Contextualizer, loggerFactory);
 
     logger.LogInformation("Knowledge base: {Name} ({Id})", config.Name, config.Id);
     logger.LogInformation("Path: {Path}", kbPath);
@@ -226,14 +216,12 @@ static string? ParseArg(string[] args, string name)
 /// <summary>
 /// Creates an embedding provider from the given configuration using credential lookup.
 /// </summary>
-static IEmbeddingProvider CreateEmbeddingProvider(ProviderConfig config, ICredentialService credentials)
+static IEmbeddingProvider CreateEmbeddingProvider(ProviderConfig config)
 {
     if (string.IsNullOrEmpty(config.Model))
         return new NullEmbeddingProvider();
 
-    var apiKey = config.ApiKeyPreset is not null
-        ? credentials.GetApiKey(config.ApiKeyPreset) ?? ""
-        : "";
+    var apiKey = ResolveApiKey(config.ApiKeyPreset);
 
     var baseUrl = config.BaseUrl ?? config.Provider.ToLowerInvariant() switch
     {
@@ -251,18 +239,13 @@ static IEmbeddingProvider CreateEmbeddingProvider(ProviderConfig config, ICreden
     return new OpenAiCompatibleEmbeddingProvider(baseUrl, apiKey, config.Model, config.Dimension);
 }
 
-/// <summary>
-/// Creates a chunk contextualizer (Anthropic or OpenAI-compatible) from the given configuration.
-/// </summary>
 static IChunkContextualizer CreateContextualizer(
-    ProviderConfig config, ICredentialService credentials, ILoggerFactory loggerFactory)
+    ProviderConfig config, ILoggerFactory loggerFactory)
 {
     if (string.IsNullOrEmpty(config.Model))
         return new NullChunkContextualizer();
 
-    var apiKey = config.ApiKeyPreset is not null
-        ? credentials.GetApiKey(config.ApiKeyPreset) ?? ""
-        : "";
+    var apiKey = ResolveApiKey(config.ApiKeyPreset);
 
     var baseUrl = config.BaseUrl ?? config.Provider.ToLowerInvariant() switch
     {
@@ -285,6 +268,31 @@ static IChunkContextualizer CreateContextualizer(
 
     return new OpenAiChunkContextualizer(
         baseUrl, config.Model, apiKey, logger: loggerFactory.CreateLogger<OpenAiChunkContextualizer>());
+}
+
+/// <summary>
+/// Resolves an API key from environment variables.
+/// The <paramref name="presetName"/> from config.json (e.g., "OpenAI", "Claude")
+/// is mapped to standard environment variable names. When AssistStudio spawns
+/// this process, it injects keys from PasswordVault into the child's environment.
+/// Standalone callers (Claude Desktop, CI) set env vars directly.
+/// </summary>
+static string ResolveApiKey(string? presetName)
+{
+    if (string.IsNullOrEmpty(presetName))
+        return "";
+
+    var envVarName = presetName.ToUpperInvariant() switch
+    {
+        "OPENAI" => "OPENAI_API_KEY",
+        "CLAUDE" or "ANTHROPIC" => "ANTHROPIC_API_KEY",
+        "GEMINI" or "GOOGLE" => "GEMINI_API_KEY",
+        "VOYAGE" => "VOYAGE_API_KEY",
+        "GROQ" => "GROQ_API_KEY",
+        _ => $"{presetName.ToUpperInvariant()}_API_KEY",
+    };
+
+    return Environment.GetEnvironmentVariable(envVarName) ?? "";
 }
 
 /// <summary>

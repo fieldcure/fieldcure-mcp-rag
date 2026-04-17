@@ -1,6 +1,5 @@
 ﻿using System.Collections.Concurrent;
 using FieldCure.Mcp.Rag.Configuration;
-using FieldCure.Mcp.Rag.Credentials;
 using FieldCure.Mcp.Rag.Embedding;
 using FieldCure.Mcp.Rag.Search;
 using FieldCure.Mcp.Rag.Storage;
@@ -29,8 +28,7 @@ public enum FolderClassification
 /// </summary>
 public sealed class MultiKbContext : IDisposable
 {
-    readonly ICredentialService _credentials;
-    readonly Func<ProviderConfig, ICredentialService, IEmbeddingProvider> _embeddingFactory;
+    readonly Func<ProviderConfig, IEmbeddingProvider> _embeddingFactory;
     readonly ILogger<MultiKbContext> _logger;
     readonly ConcurrentDictionary<string, KbInstance> _instances = new();
 
@@ -39,12 +37,10 @@ public sealed class MultiKbContext : IDisposable
 
     public MultiKbContext(
         string basePath,
-        ICredentialService credentials,
-        Func<ProviderConfig, ICredentialService, IEmbeddingProvider> embeddingFactory,
+        Func<ProviderConfig, IEmbeddingProvider> embeddingFactory,
         ILogger<MultiKbContext>? logger = null)
     {
         BasePath = basePath;
-        _credentials = credentials;
         _embeddingFactory = embeddingFactory;
         _logger = logger ?? NullLogger<MultiKbContext>.Instance;
     }
@@ -119,7 +115,7 @@ public sealed class MultiKbContext : IDisposable
                 throw new FileNotFoundException($"Database not found for knowledge base: {id}");
 
             var store = new SqliteVectorStore(dbPath, readOnly: true);
-            var embeddingProvider = _embeddingFactory(config.Embedding, _credentials);
+            var embeddingProvider = _embeddingFactory(config.Embedding);
             var searcher = new HybridSearcher(store, embeddingProvider);
 
             return new KbInstance(id, kbPath, config, store, searcher);
