@@ -1,6 +1,12 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
+using System.Net;
 using System.Text.Json;
+using FieldCure.Mcp.Rag.Configuration;
+using FieldCure.Mcp.Rag.Embedding;
 using FieldCure.Mcp.Rag.Models;
+using FieldCure.Mcp.Rag.Search;
+using FieldCure.Mcp.Rag.Services;
+using FieldCure.Mcp.Rag.Storage;
 using ModelContextProtocol.Server;
 
 namespace FieldCure.Mcp.Rag.Tools;
@@ -12,7 +18,9 @@ public static class SearchDocumentsTool
         "Searches documents in a knowledge base using hybrid BM25 keyword + vector semantic search. " +
         "Returns ranked results with source file and content preview.")]
     public static async Task<string> SearchDocuments(
+        McpServer server,
         MultiKbContext context,
+        ApiKeyResolverRegistry keyResolvers,
         [Description("Knowledge base ID")]
         string kb_id,
         [Description("Natural language search query")]
@@ -37,8 +45,38 @@ public static class SearchDocumentsTool
             "vector" => SearchMode.VectorOnly,
             _ => (SearchMode?)null,
         };
-        var kb = context.GetKb(kb_id);
-        var hybrid = await kb.Searcher.SearchAsync(query, top_k, threshold, requestedMode, cancellationToken);
+
+        var kbPath = Path.Combine(context.BasePath, kb_id);
+        if (!Directory.Exists(kbPath))
+            return JsonSerializer.Serialize(new { error = $"Knowledge base not found: {kb_id}" }, McpJson.Search);
+
+        var dbPath = Path.Combine(kbPath, "rag.db");
+        if (!File.Exists(dbPath))
+            return JsonSerializer.Serialize(new { error = $"Database not found for knowledge base: {kb_id}" }, McpJson.Search);
+
+        var config = RagConfig.Load(kbPath);
+
+        using var store = new SqliteVectorStore(dbPath, readOnly: true);
+
+        var firstAttempt = await CreateEmbeddingProviderAsync(server, keyResolvers, config.Embedding, requestedMode, cancellationToken);
+        if (firstAttempt.error is not null)
+            return JsonSerializer.Serialize(new { error = firstAttempt.error }, McpJson.Search);
+
+        var firstResult = await TrySearchAsync(store, firstAttempt.provider!, query, top_k, threshold, requestedMode, cancellationToken);
+        if (firstResult.retryableAuthFailure && firstAttempt.envVarName is not null)
+        {
+            keyResolvers.Invalidate(firstAttempt.envVarName);
+            var retryProvider = await CreateEmbeddingProviderAsync(server, keyResolvers, config.Embedding, requestedMode, cancellationToken, forceInteractive: true);
+            if (retryProvider.error is not null)
+                return JsonSerializer.Serialize(new { error = retryProvider.error }, McpJson.Search);
+
+            firstResult = await TrySearchAsync(store, retryProvider.provider!, query, top_k, threshold, requestedMode, cancellationToken);
+        }
+
+        if (firstResult.error is not null)
+            return JsonSerializer.Serialize(new { error = firstResult.error }, McpJson.Search);
+
+        var hybrid = firstResult.result!;
 
         var response = new
         {
@@ -61,4 +99,76 @@ public static class SearchDocumentsTool
 
         return JsonSerializer.Serialize(response, McpJson.Search);
     }
+
+    static async Task<(IEmbeddingProvider? provider, string? envVarName, string? error)> CreateEmbeddingProviderAsync(
+        McpServer server,
+        ApiKeyResolverRegistry keyResolvers,
+        ProviderConfig config,
+        SearchMode? requestedMode,
+        CancellationToken ct,
+        bool forceInteractive = false)
+    {
+        if (string.IsNullOrWhiteSpace(config.Model))
+            return (new NullEmbeddingProvider(), null, null);
+
+        var baseUrl = config.BaseUrl ?? config.Provider.ToLowerInvariant() switch
+        {
+            "ollama" => "http://localhost:11434",
+            "openai" => "https://api.openai.com",
+            _ => "http://localhost:11434",
+        };
+
+        if (config.Provider.Equals("ollama", StringComparison.OrdinalIgnoreCase))
+        {
+            return (new OllamaEmbeddingProvider(
+                baseUrl,
+                config.Model,
+                config.KeepAlive ?? OllamaDefaults.KeepAlive,
+                config.Dimension), null, null);
+        }
+
+        var envVarName = ApiKeyEnvironment.GetEnvVarName(config.ApiKeyPreset);
+        if (envVarName is null)
+            return (new OpenAiCompatibleEmbeddingProvider(baseUrl, "", config.Model, config.Dimension), null, null);
+
+        if (forceInteractive)
+            keyResolvers.Invalidate(envVarName);
+
+        var apiKey = await keyResolvers.ResolveAsync(server, envVarName, config.ApiKeyPreset ?? config.Provider, ct);
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            if (requestedMode == SearchMode.VectorOnly)
+                return (null, envVarName, keyResolvers.BuildSoftFailMessage(envVarName));
+
+            return (new NullEmbeddingProvider(), envVarName, null);
+        }
+
+        return (new OpenAiCompatibleEmbeddingProvider(baseUrl, apiKey, config.Model, config.Dimension), envVarName, null);
+    }
+
+    static async Task<(HybridSearchResult? result, string? error, bool retryableAuthFailure)> TrySearchAsync(
+        SqliteVectorStore store,
+        IEmbeddingProvider provider,
+        string query,
+        int topK,
+        float threshold,
+        SearchMode? requestedMode,
+        CancellationToken ct)
+    {
+        try
+        {
+            var searcher = new HybridSearcher(store, provider);
+            var result = await searcher.SearchAsync(query, topK, threshold, requestedMode, ct);
+            return (result, null, false);
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            return (null, null, true);
+        }
+        catch (Exception ex)
+        {
+            return (null, ex.Message, false);
+        }
+    }
+
 }

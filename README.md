@@ -57,7 +57,7 @@ fieldcure-mcp-rag
 - **Ollama native** — embedding via `/api/embed`, contextualization via `/api/chat` with `keep_alive` and `num_ctx` support. Requires Ollama 0.4.0+.
 - **OpenAI-compatible** — embedding via `/v1/embeddings`, contextualization via `/v1/chat/completions`. Works with OpenAI, Azure OpenAI, Groq, LM Studio, Together AI.
 - **Anthropic** — contextualization via `/v1/messages`.
-- **API keys via environment variables** — `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc. When spawned by AssistStudio, keys are injected from PasswordVault into the child process environment.
+- **API keys via environment variables** — `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc. Batch indexing commands (`exec`, `exec-queue`) are env-var-only. Interactive MCP search can fall back to MCP elicitation when the client supports it.
 - Standard MCP stdio transport (JSON-RPC over stdin/stdout)
 
 ## Chunk Contextualization
@@ -214,6 +214,7 @@ For full retrieval quality with semantic search and contextualization, add `embe
 ```
 
 API keys are resolved from environment variables: `apiKeyPreset: "OpenAI"` → `OPENAI_API_KEY`, `"Claude"` → `ANTHROPIC_API_KEY`.
+In `serve` mode, `search_documents` can also prompt via MCP elicitation when the client supports it. In `exec` and `exec-queue`, missing keys must be provided via environment variables.
 
 ### 2. Index documents
 

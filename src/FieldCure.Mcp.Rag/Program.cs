@@ -9,6 +9,7 @@ using FieldCure.Mcp.Rag.Configuration;
 using FieldCure.Mcp.Rag.Contextualization;
 using FieldCure.Mcp.Rag.Embedding;
 using FieldCure.Mcp.Rag.Indexing;
+using FieldCure.Mcp.Rag.Services;
 using FieldCure.Mcp.Rag.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -53,9 +54,10 @@ async Task<int> RunServeAsync(string[] args)
     });
 
     builder.Services
+        .AddSingleton<ApiKeyResolverRegistry>()
         .AddSingleton(sp => new MultiKbContext(
             basePath,
-            CreateEmbeddingProvider,
+            CreateEmbeddingProviderForBatch,
             sp.GetRequiredService<ILogger<MultiKbContext>>()))
         .AddMcpServer(options =>
         {
@@ -106,8 +108,8 @@ async Task<int> RunExecAsync(string[] args)
     var logger = loggerFactory.CreateLogger<IndexingEngine>();
     var store = new SqliteVectorStore(dbPath);
     var chunker = new TextChunker(maxChars: config.Embedding.MaxChunkChars);
-    var embeddingProvider = CreateEmbeddingProvider(config.Embedding);
-    var contextualizer = CreateContextualizer(config.Contextualizer, loggerFactory);
+    var embeddingProvider = CreateEmbeddingProviderForBatch(config.Embedding);
+    var contextualizer = CreateContextualizerForBatch(config.Contextualizer, loggerFactory);
 
     logger.LogInformation("Knowledge base: {Name} ({Id})", config.Name, config.Id);
     logger.LogInformation("Path: {Path}", kbPath);
@@ -217,12 +219,12 @@ static string? ParseArg(string[] args, string name)
 /// <summary>
 /// Creates an embedding provider from the given configuration using credential lookup.
 /// </summary>
-static IEmbeddingProvider CreateEmbeddingProvider(ProviderConfig config)
+static IEmbeddingProvider CreateEmbeddingProviderForBatch(ProviderConfig config)
 {
     if (string.IsNullOrEmpty(config.Model))
         return new NullEmbeddingProvider();
 
-    var apiKey = ResolveApiKey(config.ApiKeyPreset);
+    var apiKey = ApiKeyEnvironment.ResolveOrEmpty(config.ApiKeyPreset);
 
     var baseUrl = config.BaseUrl ?? config.Provider.ToLowerInvariant() switch
     {
@@ -240,13 +242,13 @@ static IEmbeddingProvider CreateEmbeddingProvider(ProviderConfig config)
     return new OpenAiCompatibleEmbeddingProvider(baseUrl, apiKey, config.Model, config.Dimension);
 }
 
-static IChunkContextualizer CreateContextualizer(
+static IChunkContextualizer CreateContextualizerForBatch(
     ProviderConfig config, ILoggerFactory loggerFactory)
 {
     if (string.IsNullOrEmpty(config.Model))
         return new NullChunkContextualizer();
 
-    var apiKey = ResolveApiKey(config.ApiKeyPreset);
+    var apiKey = ApiKeyEnvironment.ResolveOrEmpty(config.ApiKeyPreset);
 
     var baseUrl = config.BaseUrl ?? config.Provider.ToLowerInvariant() switch
     {
@@ -269,31 +271,6 @@ static IChunkContextualizer CreateContextualizer(
 
     return new OpenAiChunkContextualizer(
         baseUrl, config.Model, apiKey, logger: loggerFactory.CreateLogger<OpenAiChunkContextualizer>());
-}
-
-/// <summary>
-/// Resolves an API key from environment variables.
-/// The <paramref name="presetName"/> from config.json (e.g., "OpenAI", "Claude")
-/// is mapped to standard environment variable names. When AssistStudio spawns
-/// this process, it injects keys from PasswordVault into the child's environment.
-/// Standalone callers (Claude Desktop, CI) set env vars directly.
-/// </summary>
-static string ResolveApiKey(string? presetName)
-{
-    if (string.IsNullOrEmpty(presetName))
-        return "";
-
-    var envVarName = presetName.ToUpperInvariant() switch
-    {
-        "OPENAI" => "OPENAI_API_KEY",
-        "CLAUDE" or "ANTHROPIC" => "ANTHROPIC_API_KEY",
-        "GEMINI" or "GOOGLE" => "GEMINI_API_KEY",
-        "VOYAGE" => "VOYAGE_API_KEY",
-        "GROQ" => "GROQ_API_KEY",
-        _ => $"{presetName.ToUpperInvariant()}_API_KEY",
-    };
-
-    return Environment.GetEnvironmentVariable(envVarName) ?? "";
 }
 
 /// <summary>

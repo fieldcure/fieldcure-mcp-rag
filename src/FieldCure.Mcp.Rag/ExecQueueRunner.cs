@@ -6,6 +6,7 @@ using FieldCure.Mcp.Rag.Configuration;
 using FieldCure.Mcp.Rag.Contextualization;
 using FieldCure.Mcp.Rag.Embedding;
 using FieldCure.Mcp.Rag.Indexing;
+using FieldCure.Mcp.Rag.Services;
 using FieldCure.Mcp.Rag.Storage;
 using Microsoft.Extensions.Logging;
 
@@ -227,7 +228,7 @@ internal static class ExecQueueRunner
         if (string.IsNullOrEmpty(config.Model))
             return new NullEmbeddingProvider();
 
-        var apiKey = ResolveApiKey(config.ApiKeyPreset);
+        var apiKey = ApiKeyEnvironment.ResolveOrEmpty(config.ApiKeyPreset);
 
         var baseUrl = config.BaseUrl ?? config.Provider.ToLowerInvariant() switch
         {
@@ -251,7 +252,7 @@ internal static class ExecQueueRunner
         if (string.IsNullOrEmpty(config.Model))
             return new NullChunkContextualizer();
 
-        var apiKey = ResolveApiKey(config.ApiKeyPreset);
+        var apiKey = ApiKeyEnvironment.ResolveOrEmpty(config.ApiKeyPreset);
 
         var baseUrl = config.BaseUrl ?? config.Provider.ToLowerInvariant() switch
         {
@@ -279,24 +280,6 @@ internal static class ExecQueueRunner
     #endregion
 
     #region Queue File I/O
-
-    private static string ResolveApiKey(string? presetName)
-    {
-        if (string.IsNullOrEmpty(presetName))
-            return "";
-
-        var envVarName = presetName.ToUpperInvariant() switch
-        {
-            "OPENAI" => "OPENAI_API_KEY",
-            "CLAUDE" or "ANTHROPIC" => "ANTHROPIC_API_KEY",
-            "GEMINI" or "GOOGLE" => "GEMINI_API_KEY",
-            "VOYAGE" => "VOYAGE_API_KEY",
-            "GROQ" => "GROQ_API_KEY",
-            _ => $"{presetName.ToUpperInvariant()}_API_KEY",
-        };
-
-        return Environment.GetEnvironmentVariable(envVarName) ?? "";
-    }
 
     #endregion
 

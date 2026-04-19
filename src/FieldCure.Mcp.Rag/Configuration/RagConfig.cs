@@ -55,8 +55,9 @@ public sealed class ProviderConfig
     public string? BaseUrl { get; set; }
 
     /// <summary>
-    /// PasswordVault preset name for API key lookup (e.g., "Claude", "OpenAI").
-    /// Null for providers that don't require a key (e.g., local Ollama).
+    /// Provider label used to derive the canonical API key environment variable
+    /// (for example "Claude" -> ANTHROPIC_API_KEY, "OpenAI" -> OPENAI_API_KEY).
+    /// Null for providers that don't require a key (for example local Ollama).
     /// </summary>
     public string? ApiKeyPreset { get; set; }
 
