@@ -1,4 +1,4 @@
-namespace FieldCure.Mcp.Rag.Embedding;
+﻿namespace FieldCure.Mcp.Rag.Embedding;
 
 /// <summary>
 /// Fallback embedding provider that returns zero vectors.
@@ -18,7 +18,7 @@ public sealed class NullEmbeddingProvider : IEmbeddingProvider
         IReadOnlyList<string> texts, CancellationToken ct = default)
     {
         var results = new float[texts.Count][];
-        for (int i = 0; i < texts.Count; i++)
+        for (var i = 0; i < texts.Count; i++)
             results[i] = Array.Empty<float>();
         return Task.FromResult(results);
     }

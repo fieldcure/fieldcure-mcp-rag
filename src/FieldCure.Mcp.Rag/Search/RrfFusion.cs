@@ -23,7 +23,7 @@ internal static class RrfFusion
 
         foreach (var list in rankedLists)
         {
-            for (int rank = 0; rank < list.Count; rank++)
+            for (var rank = 0; rank < list.Count; rank++)
             {
                 var id = list[rank];
                 var rrfScore = 1.0 / (k + rank + 1);

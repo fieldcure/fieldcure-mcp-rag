@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using FieldCure.Mcp.Rag.Models;
@@ -1183,7 +1183,7 @@ public sealed class SqliteVectorStore : IDisposable
         await using var cmd = conn.CreateCommand();
 
         var paramNames = new string[chunkIds.Count];
-        for (int i = 0; i < chunkIds.Count; i++)
+        for (var i = 0; i < chunkIds.Count; i++)
         {
             paramNames[i] = $"@p{i}";
             cmd.Parameters.AddWithValue(paramNames[i], chunkIds[i]);

@@ -1,4 +1,4 @@
-namespace FieldCure.Mcp.Rag.Embedding;
+﻿namespace FieldCure.Mcp.Rag.Embedding;
 
 /// <summary>
 /// Abstraction for generating text embedding vectors.
@@ -27,7 +27,7 @@ public interface IEmbeddingProvider
         IReadOnlyList<string> texts, CancellationToken ct = default)
     {
         var results = new float[texts.Count][];
-        for (int i = 0; i < texts.Count; i++)
+        for (var i = 0; i < texts.Count; i++)
             results[i] = await EmbedAsync(texts[i], ct);
         return results;
     }

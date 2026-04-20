@@ -1,4 +1,4 @@
-using System.Net.Http.Json;
+﻿using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -44,7 +44,7 @@ public sealed class OllamaEmbeddingProvider : IEmbeddingProvider
     public async Task<float[][]> EmbedBatchAsync(
         IReadOnlyList<string> texts, CancellationToken ct = default)
     {
-        object input = texts.Count == 1 ? texts[0] : (object)texts;
+        var input = texts.Count == 1 ? texts[0] : (object)texts;
 
         var request = new
         {

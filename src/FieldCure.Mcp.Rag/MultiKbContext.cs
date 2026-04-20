@@ -170,8 +170,8 @@ public sealed class MultiKbContext : IDisposable
 
             var dbPath = Path.Combine(dir, "rag.db");
             int totalFiles = 0, totalChunks = 0;
-            bool isIndexing = false;
-            int schemaVersion = 0;
+            var isIndexing = false;
+            var schemaVersion = 0;
 
             if (File.Exists(dbPath))
             {
