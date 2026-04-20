@@ -1,4 +1,4 @@
-namespace FieldCure.Mcp.Rag.Models;
+﻿namespace FieldCure.Mcp.Rag.Models;
 
 /// <summary>
 /// Snapshot of the current file_index state. Queried from the DB, not

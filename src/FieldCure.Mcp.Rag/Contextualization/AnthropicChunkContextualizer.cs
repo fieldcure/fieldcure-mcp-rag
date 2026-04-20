@@ -1,4 +1,4 @@
-using System.Net.Http.Json;
+﻿using System.Net.Http.Json;
 using System.Text.Json;
 using FieldCure.Mcp.Rag.Models;
 using Microsoft.Extensions.Logging;
@@ -50,6 +50,7 @@ public sealed class AnthropicChunkContextualizer : IChunkContextualizer
             : value;
     }
 
+    /// <inheritdoc />
     public async Task<EnrichResult> EnrichAsync(
         string chunkText,
         string? documentContext,

@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using FieldCure.Mcp.Rag.Configuration;
 
 using FieldCure.Mcp.Rag.Embedding;

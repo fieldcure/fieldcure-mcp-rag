@@ -21,6 +21,14 @@ public static class CheckChangesTool
         "operation (no GPU, no API calls). Use before start_reindex to determine " +
         "if re-indexing is needed. Also detects DB schema staleness and " +
         "contextualization degradation.")]
+    /// <summary>
+    /// Performs a dry-run scan that compares filesystem state with indexed state
+    /// for one knowledge base without modifying the index.
+    /// </summary>
+    /// <param name="context">The shared multi-knowledge-base context.</param>
+    /// <param name="kb_id">Knowledge base identifier.</param>
+    /// <param name="cancellationToken">Cancellation token for the scan.</param>
+    /// <returns>A JSON payload summarizing added, modified, deleted, and failed files.</returns>
     public static async Task<string> CheckChanges(
         MultiKbContext context,
         [Description("Knowledge base ID")]

@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -169,6 +169,14 @@ public static class StartReindexTool
         return JsonSerializer.Serialize(new { status, kb_id, queue_position = position }, McpJson.Indented);
     }
 
+    /// <summary>
+    /// Best-effort spawn of the sequential exec-queue orchestrator in a detached
+    /// process. No-ops when an existing lock file indicates another orchestrator
+    /// is already running.
+    /// </summary>
+    /// <param name="basePath">Root directory containing the queue state.</param>
+    /// <param name="queueFilePath">Absolute path to the queue file the orchestrator should consume.</param>
+    /// <param name="logger">Logger used for spawn diagnostics.</param>
     private static void TrySpawnOrchestrator(string basePath, string queueFilePath, ILogger logger)
     {
         var lockFilePath = Path.Combine(basePath, ExecQueueRunner.LockFileName);

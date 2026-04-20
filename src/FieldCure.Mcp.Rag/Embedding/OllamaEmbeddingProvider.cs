@@ -65,6 +65,12 @@ public sealed class OllamaEmbeddingProvider : IEmbeddingProvider
         return [.. body.Embeddings];
     }
 
+    /// <summary>
+    /// Throws an <see cref="HttpRequestException"/> carrying the Ollama response
+    /// body (truncated to 2 KB) when the HTTP status code is not successful.
+    /// </summary>
+    /// <param name="response">Response to validate.</param>
+    /// <param name="ct">Cancellation token for the body read.</param>
     static async Task ThrowIfNotSuccessAsync(HttpResponseMessage response, CancellationToken ct)
     {
         if (response.IsSuccessStatusCode) return;

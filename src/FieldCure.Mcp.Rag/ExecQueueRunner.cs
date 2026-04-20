@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using FieldCure.Mcp.Rag.Chunking;
@@ -200,6 +200,13 @@ internal static class ExecQueueRunner
         }
     }
 
+    /// <summary>
+    /// Deletes the orchestrator lock file and removes the queue file when empty.
+    /// Swallows failures so shutdown paths stay best-effort.
+    /// </summary>
+    /// <param name="lockFilePath">Path of the lock file to delete.</param>
+    /// <param name="queueFilePath">Path of the queue file that may also be removed when empty.</param>
+    /// <param name="logger">Logger used for diagnostics on failure.</param>
     private static void ReleaseLock(string lockFilePath, string queueFilePath, ILogger logger)
     {
         try
@@ -223,6 +230,13 @@ internal static class ExecQueueRunner
 
     #region Provider Factories
 
+    /// <summary>
+    /// Creates the embedding provider for the current queue entry based on its
+    /// <see cref="ProviderConfig"/>. Returns a <see cref="NullEmbeddingProvider"/>
+    /// when the config has no model.
+    /// </summary>
+    /// <param name="config">Embedding provider configuration from the KB.</param>
+    /// <returns>The resolved embedding provider for batch execution.</returns>
     private static IEmbeddingProvider CreateEmbeddingProvider(ProviderConfig config)
     {
         if (string.IsNullOrEmpty(config.Model))
@@ -246,6 +260,13 @@ internal static class ExecQueueRunner
         return new OpenAiCompatibleEmbeddingProvider(baseUrl, apiKey, config.Model, config.Dimension);
     }
 
+    /// <summary>
+    /// Creates the chunk contextualizer for the current queue entry. Returns a
+    /// <see cref="NullChunkContextualizer"/> when the config has no model.
+    /// </summary>
+    /// <param name="config">Contextualizer provider configuration from the KB.</param>
+    /// <param name="loggerFactory">Logger factory used by the contextualizer.</param>
+    /// <returns>The resolved contextualizer for batch execution.</returns>
     private static IChunkContextualizer CreateContextualizer(
         ProviderConfig config, ILoggerFactory loggerFactory)
     {
@@ -285,6 +306,9 @@ internal static class ExecQueueRunner
 
     #region Queue File I/O
 
+    /// <summary>
+    /// Loads the deferred queue file from disk, returning an empty queue when absent.
+    /// </summary>
     internal static DeferredQueue? LoadQueue(string path)
     {
         try
@@ -299,6 +323,9 @@ internal static class ExecQueueRunner
         }
     }
 
+    /// <summary>
+    /// Saves the deferred queue file atomically using the source-generated JSON context.
+    /// </summary>
     internal static void SaveQueue(string path, DeferredQueue queue)
     {
         var json = JsonSerializer.Serialize(queue, DeferredQueueJsonContext.Default.DeferredQueue);

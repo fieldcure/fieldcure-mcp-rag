@@ -35,6 +35,12 @@ public sealed class MultiKbContext : IDisposable
     /// <summary>The root directory containing all KB folders.</summary>
     public string BasePath { get; }
 
+    /// <summary>
+    /// Initializes the shared multi-knowledge-base context.
+    /// </summary>
+    /// <param name="basePath">Root directory containing all knowledge-base folders.</param>
+    /// <param name="embeddingFactory">Factory used to create embedding providers per KB.</param>
+    /// <param name="logger">Optional logger for diagnostics and lazy-unload events.</param>
     public MultiKbContext(
         string basePath,
         Func<ProviderConfig, IEmbeddingProvider> embeddingFactory,
@@ -216,6 +222,9 @@ public sealed class MultiKbContext : IDisposable
         return summaries;
     }
 
+    /// <summary>
+    /// Disposes all cached knowledge-base instances and clears the cache.
+    /// </summary>
     public void Dispose()
     {
         foreach (var instance in _instances.Values)
@@ -230,12 +239,20 @@ public sealed class MultiKbContext : IDisposable
 /// </summary>
 public sealed class KbInstance : IDisposable
 {
+    /// <summary>The stable knowledge-base identifier.</summary>
     public string KbId { get; }
+    /// <summary>The absolute path to the knowledge-base folder.</summary>
     public string KbPath { get; }
+    /// <summary>The parsed knowledge-base configuration.</summary>
     public RagConfig Config { get; }
+    /// <summary>The read-only SQLite store for this knowledge base.</summary>
     public SqliteVectorStore Store { get; }
+    /// <summary>The searcher bound to this knowledge base.</summary>
     public HybridSearcher Searcher { get; }
 
+    /// <summary>
+    /// Initializes a cached knowledge-base instance.
+    /// </summary>
     public KbInstance(
         string kbId,
         string kbPath,
@@ -250,6 +267,9 @@ public sealed class KbInstance : IDisposable
         Searcher = searcher;
     }
 
+    /// <summary>
+    /// Disposes the underlying store for this knowledge base.
+    /// </summary>
     public void Dispose() => Store.Dispose();
 }
 

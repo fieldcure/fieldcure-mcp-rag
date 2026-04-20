@@ -23,6 +23,12 @@ public sealed class SqliteVectorStore : IDisposable
 
     readonly string _connectionString;
 
+    /// <summary>
+    /// Initializes the SQLite-backed vector store and, unless read-only mode is
+    /// requested, ensures the schema is created and migrated.
+    /// </summary>
+    /// <param name="dbPath">Absolute path to the SQLite database file.</param>
+    /// <param name="readOnly">When true, opens the database read-only and skips schema initialization.</param>
     public SqliteVectorStore(string dbPath, bool readOnly = false)
     {
         if (!readOnly)
@@ -677,6 +683,11 @@ public sealed class SqliteVectorStore : IDisposable
         return new IndexStateCounters(0, 0, 0, 0);
     }
 
+    /// <summary>
+    /// Counts indexed files currently assigned to the given file status.
+    /// </summary>
+    /// <param name="status">File status to count.</param>
+    /// <returns>The number of matching file rows.</returns>
     public async Task<int> CountFilesByStatusAsync(FileIndexStatus status)
     {
         await using var conn = OpenConnection();
@@ -866,6 +877,15 @@ public sealed class SqliteVectorStore : IDisposable
         await cmd.ExecuteNonQueryAsync();
     }
 
+    /// <summary>
+    /// Runs a parameterized non-query statement on an existing connection and
+    /// transaction pair. Centralizes the boilerplate command setup used by the
+    /// write-side batch helpers.
+    /// </summary>
+    /// <param name="conn">Open SQLite connection.</param>
+    /// <param name="tx">Ambient transaction the command participates in.</param>
+    /// <param name="sql">SQL statement to execute.</param>
+    /// <param name="parameters">Named parameter tuples bound to the command.</param>
     static async Task ExecuteNonQueryAsync(
         SqliteConnection conn, System.Data.Common.DbTransaction tx, string sql,
         params (string Name, object Value)[] parameters)
@@ -1412,6 +1432,11 @@ public sealed class SqliteVectorStore : IDisposable
 
     #endregion
 
+    /// <summary>
+    /// No-op dispose — <see cref="SqliteConnection"/> pooling makes per-store
+    /// cleanup unnecessary. Kept so callers that treat the store as
+    /// <see cref="IDisposable"/> compile cleanly.
+    /// </summary>
     public void Dispose()
     {
         // Connection pooling is handled by SqliteConnection; nothing to dispose at store level.

@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 
 namespace FieldCure.Mcp.Rag.Contextualization;
@@ -48,6 +48,19 @@ internal static class ChunkContextualizerHelper
     internal const int TruncatedDocSize = 2_000;
     internal const int LargeDocThreshold = 20_000;
 
+    /// <summary>
+    /// Builds the LLM prompt used to generate per-chunk context and keywords
+    /// for hybrid retrieval enrichment. Large documents are automatically
+    /// truncated per the <see cref="FullDocThreshold"/> and
+    /// <see cref="TruncatedDocSize"/> constants to keep the prompt within
+    /// provider-safe limits.
+    /// </summary>
+    /// <param name="chunkText">Raw chunk text to enrich.</param>
+    /// <param name="documentContext">Optional full-document context for retrieval grounding.</param>
+    /// <param name="sourceFileName">Source filename used in the prompt metadata block.</param>
+    /// <param name="chunkIndex">Zero-based chunk position within the document.</param>
+    /// <param name="totalChunks">Total number of chunks in the document.</param>
+    /// <returns>A ready-to-send prompt string.</returns>
     internal static string BuildPrompt(
         string chunkText,
         string? documentContext,
@@ -75,6 +88,10 @@ internal static class ChunkContextualizerHelper
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Parses a contextualizer response in the strict <c>CONTEXT</c>/<c>KEYWORDS</c>
+    /// format and merges it with the original chunk text.
+    /// </summary>
     internal static string ParseEnrichedOutput(string aiOutput, string originalChunk)
     {
         var contextLine = "";
@@ -106,6 +123,10 @@ internal static class ChunkContextualizerHelper
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Truncates large document context strings so prompts stay within a
+    /// predictable size budget while still preserving useful head and tail content.
+    /// </summary>
     internal static string? TruncateDocumentContext(string fullText)
     {
         if (string.IsNullOrEmpty(fullText))

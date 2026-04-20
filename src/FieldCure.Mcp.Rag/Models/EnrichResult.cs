@@ -1,4 +1,4 @@
-namespace FieldCure.Mcp.Rag.Models;
+﻿namespace FieldCure.Mcp.Rag.Models;
 
 /// <summary>
 /// Result of a chunk contextualization attempt.

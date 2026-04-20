@@ -1,4 +1,4 @@
-using FieldCure.Mcp.Rag.Embedding;
+﻿using FieldCure.Mcp.Rag.Embedding;
 using FieldCure.Mcp.Rag.Indexing;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;

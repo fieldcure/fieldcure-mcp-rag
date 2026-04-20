@@ -1,4 +1,4 @@
-using FieldCure.Mcp.Rag.Models;
+﻿using FieldCure.Mcp.Rag.Models;
 
 namespace FieldCure.Mcp.Rag.Contextualization;
 
@@ -15,6 +15,7 @@ public sealed class NullChunkContextualizer : IChunkContextualizer
         set { } // No-op: null contextualizer doesn't use a prompt
     }
 
+    /// <inheritdoc />
     public Task<EnrichResult> EnrichAsync(
         string chunkText,
         string? documentContext,

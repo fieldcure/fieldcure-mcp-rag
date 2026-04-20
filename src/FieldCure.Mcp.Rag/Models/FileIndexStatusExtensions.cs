@@ -1,4 +1,4 @@
-namespace FieldCure.Mcp.Rag.Models;
+﻿namespace FieldCure.Mcp.Rag.Models;
 
 /// <summary>
 /// Extension methods for <see cref="FileIndexStatus"/> that capture cross-

@@ -213,6 +213,13 @@ static string? ParseStringArg(string[] args, string name)
     return null;
 }
 
+/// <summary>
+/// Parses a named path argument from the command line and returns it as an
+/// absolute path (e.g., <c>--path ./foo</c> → <c>/abs/foo</c>).
+/// </summary>
+/// <param name="args">Command-line arguments.</param>
+/// <param name="name">Argument name to match (case-insensitive).</param>
+/// <returns>The absolute path, or <see langword="null"/> when the argument is absent.</returns>
 static string? ParseArg(string[] args, string name)
 {
     for (var i = 0; i < args.Length - 1; i++)
@@ -250,6 +257,14 @@ static IEmbeddingProvider CreateEmbeddingProviderForBatch(ProviderConfig config)
     return new OpenAiCompatibleEmbeddingProvider(baseUrl, apiKey, config.Model, config.Dimension);
 }
 
+/// <summary>
+/// Creates the chunk contextualizer used by batch runs (exec / exec-queue).
+/// Returns a <see cref="NullChunkContextualizer"/> when the provider model is
+/// unset so the pipeline can proceed without contextualization.
+/// </summary>
+/// <param name="config">Contextualizer provider configuration.</param>
+/// <param name="loggerFactory">Logger factory for provider diagnostics.</param>
+/// <returns>The resolved contextualizer for batch execution.</returns>
 static IChunkContextualizer CreateContextualizerForBatch(
     ProviderConfig config, ILoggerFactory loggerFactory)
 {

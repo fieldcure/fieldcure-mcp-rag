@@ -17,6 +17,13 @@ public static class GetIndexInfoTool
         "status, prompt hash for stale-index detection, and queue state " +
         "(position, deferred, last_error). Use after start_reindex to poll for " +
         "progress. The queue field shows pending/running/failed status.")]
+    /// <summary>
+    /// Returns indexing, schema, prompt, and queue metadata for one knowledge base.
+    /// </summary>
+    /// <param name="context">The shared multi-knowledge-base context.</param>
+    /// <param name="kb_id">Knowledge base identifier.</param>
+    /// <param name="cancellationToken">Cancellation token for the read operation.</param>
+    /// <returns>A JSON payload containing current index metadata and queue state.</returns>
     public static async Task<string> GetIndexInfo(
         MultiKbContext context,
         [Description("Knowledge base ID")]

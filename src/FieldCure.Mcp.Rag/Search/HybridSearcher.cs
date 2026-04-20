@@ -10,6 +10,16 @@ namespace FieldCure.Mcp.Rag.Search;
 /// </summary>
 public sealed class HybridSearcher(SqliteVectorStore store, IEmbeddingProvider embeddingProvider)
 {
+    /// <summary>
+    /// Searches the store using BM25, vector similarity, or hybrid fusion
+    /// depending on provider availability and the requested mode.
+    /// </summary>
+    /// <param name="query">Natural-language search query.</param>
+    /// <param name="topK">Maximum number of results to return.</param>
+    /// <param name="threshold">Minimum vector similarity score.</param>
+    /// <param name="requestedMode">Optional explicit mode override.</param>
+    /// <param name="ct">Cancellation token for the search operation.</param>
+    /// <returns>A ranked hybrid search result.</returns>
     public async Task<HybridSearchResult> SearchAsync(
         string query, int topK, float threshold,
         SearchMode? requestedMode = null, CancellationToken ct = default)

@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Net;
 using System.Text.Json;
 using FieldCure.Mcp.Rag.Configuration;
@@ -11,9 +11,26 @@ using ModelContextProtocol.Server;
 
 namespace FieldCure.Mcp.Rag.Tools;
 
+/// <summary>
+/// MCP tool that performs hybrid document search across a selected knowledge base.
+/// </summary>
 [McpServerToolType]
 public static class SearchDocumentsTool
 {
+    /// <summary>
+    /// Searches a knowledge base using BM25, vector, or hybrid ranking depending
+    /// on provider availability and the caller's requested mode.
+    /// </summary>
+    /// <param name="server">The active MCP server instance.</param>
+    /// <param name="context">The shared multi-knowledge-base context.</param>
+    /// <param name="keyResolvers">Lazy API key resolver registry for embedding providers.</param>
+    /// <param name="kb_id">Knowledge base identifier.</param>
+    /// <param name="query">Natural-language search query.</param>
+    /// <param name="top_k">Maximum number of results to return.</param>
+    /// <param name="threshold">Minimum vector similarity score.</param>
+    /// <param name="search_mode">Requested search mode override.</param>
+    /// <param name="cancellationToken">Cancellation token for the search operation.</param>
+    /// <returns>A JSON payload containing ranked results or an error object.</returns>
     [McpServerTool(Name = "search_documents", ReadOnly = true, Destructive = false, Idempotent = true), Description(
         "Searches documents in a knowledge base using hybrid BM25 keyword + vector semantic search. " +
         "Returns ranked results with source file and content preview.")]
@@ -100,6 +117,10 @@ public static class SearchDocumentsTool
         return JsonSerializer.Serialize(response, McpJson.Search);
     }
 
+    /// <summary>
+    /// Creates the embedding provider for a search request, eliciting API keys
+    /// lazily when needed and falling back to a null provider when allowed.
+    /// </summary>
     static async Task<(IEmbeddingProvider? provider, string? envVarName, string? error)> CreateEmbeddingProviderAsync(
         McpServer server,
         ApiKeyResolverRegistry keyResolvers,
@@ -146,6 +167,10 @@ public static class SearchDocumentsTool
         return (new OpenAiCompatibleEmbeddingProvider(baseUrl, apiKey, config.Model, config.Dimension), envVarName, null);
     }
 
+    /// <summary>
+    /// Executes one hybrid search attempt and classifies authentication failures
+    /// so the caller can invalidate the key and retry interactively.
+    /// </summary>
     static async Task<(HybridSearchResult? result, string? error, bool retryableAuthFailure)> TrySearchAsync(
         SqliteVectorStore store,
         IEmbeddingProvider provider,

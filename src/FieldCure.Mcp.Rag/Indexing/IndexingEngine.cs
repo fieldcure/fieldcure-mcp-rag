@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
@@ -49,6 +49,16 @@ public sealed class IndexingEngine
     readonly ILogger _logger;
     readonly int _embeddingBatchSize;
 
+    /// <summary>
+    /// Initializes a new <see cref="IndexingEngine"/> bound to a single KB folder.
+    /// </summary>
+    /// <param name="kbPath">Absolute path to the KB folder on disk.</param>
+    /// <param name="config">Loaded <see cref="RagConfig"/> for the KB.</param>
+    /// <param name="store">SQLite-backed vector store for the KB.</param>
+    /// <param name="embeddingProvider">Embedding provider resolved for this run.</param>
+    /// <param name="chunker">Text chunker used to split extracted documents.</param>
+    /// <param name="contextualizer">Chunk contextualizer (may be Null for no-op).</param>
+    /// <param name="logger">Logger used for run diagnostics.</param>
     public IndexingEngine(
         string kbPath,
         RagConfig config,

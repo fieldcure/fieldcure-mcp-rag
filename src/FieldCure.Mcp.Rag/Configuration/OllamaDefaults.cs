@@ -1,4 +1,4 @@
-namespace FieldCure.Mcp.Rag.Configuration;
+﻿namespace FieldCure.Mcp.Rag.Configuration;
 
 /// <summary>
 /// Default values for Ollama-specific parameters shared across

@@ -1,4 +1,4 @@
-namespace FieldCure.Mcp.Rag.Embedding;
+﻿namespace FieldCure.Mcp.Rag.Embedding;
 
 /// <summary>
 /// Known-good initial batch sizes for common provider/model combinations.

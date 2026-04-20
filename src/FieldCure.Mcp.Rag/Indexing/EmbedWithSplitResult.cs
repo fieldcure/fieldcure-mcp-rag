@@ -1,4 +1,4 @@
-namespace FieldCure.Mcp.Rag.Indexing;
+﻿namespace FieldCure.Mcp.Rag.Indexing;
 
 /// <summary>
 /// Result of an embedding batch attempt that may have recursively split on

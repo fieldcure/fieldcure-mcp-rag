@@ -1,23 +1,46 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Text.Json;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
 namespace FieldCure.Mcp.Rag.Services;
 
+/// <summary>
+/// Caches one API key resolver per environment variable so interactive provider
+/// selection can lazily elicit keys on first use and invalidate them on auth failures.
+/// </summary>
 public sealed class ApiKeyResolverRegistry
 {
     readonly ConcurrentDictionary<string, ApiKeyResolver> _resolvers = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Resolves an API key from environment variables first and then, when supported,
+    /// through MCP elicitation for the active request.
+    /// </summary>
+    /// <param name="server">The active MCP server instance.</param>
+    /// <param name="envVarName">The canonical provider API key environment variable.</param>
+    /// <param name="providerLabel">User-facing provider name shown in the elicitation prompt.</param>
+    /// <param name="ct">Cancellation token for the resolution flow.</param>
+    /// <returns>The resolved API key, or <see langword="null"/> when none is available.</returns>
     public Task<string?> ResolveAsync(McpServer server, string envVarName, string providerLabel, CancellationToken ct) =>
         _resolvers.GetOrAdd(envVarName, static key => new ApiKeyResolver(key)).ResolveAsync(server, providerLabel, ct);
 
+    /// <summary>
+    /// Invalidates a cached key for the given environment variable so the next
+    /// request can re-prompt the user instead of reusing the stale value.
+    /// </summary>
+    /// <param name="envVarName">The canonical provider API key environment variable.</param>
     public void Invalidate(string envVarName)
     {
         if (_resolvers.TryGetValue(envVarName, out var resolver))
             resolver.Invalidate();
     }
 
+    /// <summary>
+    /// Builds a user-facing soft-fail message describing how to configure a missing API key.
+    /// </summary>
+    /// <param name="envVarName">The environment variable that can satisfy the key request.</param>
+    /// <returns>A concise configuration hint for tool responses.</returns>
     public string BuildSoftFailMessage(string envVarName) =>
         $"API key not configured. Set {envVarName} environment variable, or use a client that supports MCP Elicitation.";
 }
@@ -32,6 +55,13 @@ sealed class ApiKeyResolver(string envVarName)
     int _reElicitCount;
     bool _staticSourcesExhausted;
 
+    /// <summary>
+    /// Resolves and caches one concrete API key for a single provider environment variable.
+    /// </summary>
+    /// <param name="server">The active MCP server instance.</param>
+    /// <param name="providerLabel">User-facing provider name shown in the elicitation prompt.</param>
+    /// <param name="ct">Cancellation token for the resolution flow.</param>
+    /// <returns>The resolved API key, or <see langword="null"/> when no key is available.</returns>
     public async Task<string?> ResolveAsync(McpServer server, string providerLabel, CancellationToken ct)
     {
         if (_cachedKey is not null)
@@ -106,6 +136,10 @@ sealed class ApiKeyResolver(string envVarName)
         }
     }
 
+    /// <summary>
+    /// Discards the cached key and marks static sources as exhausted so the
+    /// next resolution will prefer elicitation over reusing the same env value.
+    /// </summary>
     public void Invalidate()
     {
         _cachedKey = null;

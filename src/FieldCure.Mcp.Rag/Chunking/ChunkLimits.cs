@@ -1,4 +1,4 @@
-namespace FieldCure.Mcp.Rag.Chunking;
+﻿namespace FieldCure.Mcp.Rag.Chunking;
 
 /// <summary>
 /// Character-based chunk size bounds. Chosen to stay safely within the

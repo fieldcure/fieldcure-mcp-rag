@@ -16,6 +16,7 @@ internal sealed class LazyOcrEngine : IOcrEngine, IDisposable
     private bool _unavailable;
     private readonly object _lock = new();
 
+    /// <inheritdoc />
     public Task<string> RecognizeAsync(byte[] imageBytes)
     {
         EnsureInitialized();
@@ -26,6 +27,10 @@ internal sealed class LazyOcrEngine : IOcrEngine, IDisposable
         return _inner!.RecognizeAsync(imageBytes);
     }
 
+    /// <summary>
+    /// Lazily constructs the Tesseract engine on first use and marks it
+    /// unavailable when the current platform cannot load the native binaries.
+    /// </summary>
     private void EnsureInitialized()
     {
         if (_initialized) return;
@@ -58,6 +63,7 @@ internal sealed class LazyOcrEngine : IOcrEngine, IDisposable
         }
     }
 
+    /// <inheritdoc />
     public void Dispose()
     {
         if (OperatingSystem.IsWindows())

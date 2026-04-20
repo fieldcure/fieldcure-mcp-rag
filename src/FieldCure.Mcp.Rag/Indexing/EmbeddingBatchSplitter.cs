@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using FieldCure.Mcp.Rag.Embedding;
 using Microsoft.Extensions.Logging;
 
@@ -110,6 +110,19 @@ internal static class EmbeddingBatchSplitter
             provider, logger, chunkIds, enrichedTexts, ct, sourceLabel);
     }
 
+    /// <summary>
+    /// Embeds a single batch that has already been sized within the provider's
+    /// known-good limits. Delegates to <see cref="EmbedCoreAsync"/> with depth 0
+    /// and emits one informational log line when binary splitting was actually
+    /// used.
+    /// </summary>
+    /// <param name="provider">Embedding provider to call.</param>
+    /// <param name="logger">Logger for binary-split diagnostics.</param>
+    /// <param name="chunkIds">Chunk identifiers in the batch.</param>
+    /// <param name="enrichedTexts">Contextualized texts to embed.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <param name="sourceLabel">Optional source label included in log output.</param>
+    /// <returns>Per-chunk success / failure / deferred results.</returns>
     static async Task<EmbedWithSplitResult> EmbedSingleBatchAsync(
         IEmbeddingProvider provider,
         ILogger logger,
@@ -136,6 +149,22 @@ internal static class EmbeddingBatchSplitter
         return result;
     }
 
+    /// <summary>
+    /// Embeds a batch, falling back to binary splitting when the provider
+    /// reports a size-sensitive error. On repeated failures below the split
+    /// threshold, offending chunks are marked deferred rather than thrown so
+    /// the indexing pipeline can continue.
+    /// </summary>
+    /// <param name="provider">Embedding provider to call.</param>
+    /// <param name="logger">Logger for split and retry diagnostics.</param>
+    /// <param name="chunkIds">Chunk identifiers in the current subrange.</param>
+    /// <param name="enrichedTexts">Contextualized texts in the current subrange.</param>
+    /// <param name="absoluteOffset">Offset of this subrange within the original batch, used for logging.</param>
+    /// <param name="depth">Current recursion depth within the binary split.</param>
+    /// <param name="diag">Shared diagnostics accumulator for the enclosing call.</param>
+    /// <param name="sourceLabel">Optional label identifying the document for log output.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Per-chunk success / failure / deferred results for this subrange.</returns>
     static async Task<EmbedWithSplitResult> EmbedCoreAsync(
         IEmbeddingProvider provider,
         ILogger logger,
@@ -282,6 +311,9 @@ internal static class EmbeddingBatchSplitter
         return new EmbedWithSplitResult(succeeded, [], DeferredFallback: false);
     }
 
+    /// <summary>Formats the optional source label into a trailing-space prefix for log lines.</summary>
+    /// <param name="sourceLabel">Optional document-path label.</param>
+    /// <returns>An empty string when null, otherwise the label wrapped in <c>sourcePath="..."</c> form.</returns>
     static string FormatLabel(string? sourceLabel)
         => sourceLabel is null ? "" : $"sourcePath=\"{sourceLabel}\" ";
 

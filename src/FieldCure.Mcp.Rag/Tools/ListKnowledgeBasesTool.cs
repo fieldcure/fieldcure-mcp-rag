@@ -18,6 +18,11 @@ public static class ListKnowledgeBasesTool
         "Returns ID, name, file/chunk counts, indexing status, and schema version for each KB. " +
         "A KB with is_schema_stale=true still serves search queries correctly; " +
         "re-indexing triggers automatic schema migration through the exec path.")]
+    /// <summary>
+    /// Lists all known knowledge bases along with lightweight status metadata.
+    /// </summary>
+    /// <param name="context">The shared multi-knowledge-base context.</param>
+    /// <returns>A JSON payload describing the available knowledge bases.</returns>
     public static string ListKnowledgeBases(MultiKbContext context)
     {
         var kbs = context.ListKbs();

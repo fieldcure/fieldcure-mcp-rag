@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
 namespace FieldCure.Mcp.Rag;
@@ -11,6 +11,13 @@ namespace FieldCure.Mcp.Rag;
 /// </summary>
 internal static class OrphanCleanupRunner
 {
+    /// <summary>
+    /// Scans the base path for orphan KB folders, deletes them, and writes a
+    /// JSON summary of the cleanup result to standard output.
+    /// </summary>
+    /// <param name="basePath">Root directory containing knowledge-base folders.</param>
+    /// <param name="loggerFactory">Logger factory used for cleanup diagnostics.</param>
+    /// <returns>Zero on success, or one when the base path is invalid.</returns>
     public static async Task<int> RunAsync(string basePath, ILoggerFactory loggerFactory)
     {
         var logger = loggerFactory.CreateLogger("PruneOrphans");

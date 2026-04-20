@@ -1,4 +1,4 @@
-namespace FieldCure.Mcp.Rag.Indexing;
+﻿namespace FieldCure.Mcp.Rag.Indexing;
 
 /// <summary>
 /// Detailed result of an indexing run, replacing the previous <c>int</c> exit code.

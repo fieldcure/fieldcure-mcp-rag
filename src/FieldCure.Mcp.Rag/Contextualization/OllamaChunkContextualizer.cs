@@ -1,4 +1,4 @@
-using System.Net.Http.Json;
+﻿using System.Net.Http.Json;
 using System.Text.Json;
 using FieldCure.Mcp.Rag.Models;
 using Microsoft.Extensions.Logging;
@@ -20,6 +20,15 @@ public sealed class OllamaChunkContextualizer : IChunkContextualizer
     private readonly ILogger _logger;
     private string _systemPrompt;
 
+    /// <summary>
+    /// Initializes the Ollama-native contextualizer.
+    /// </summary>
+    /// <param name="baseUrl">Ollama base URL, typically <c>http://localhost:11434</c>.</param>
+    /// <param name="model">Model identifier to use for contextualization.</param>
+    /// <param name="keepAlive">Ollama keep-alive duration for the loaded model.</param>
+    /// <param name="numCtx">Maximum Ollama context window size.</param>
+    /// <param name="systemPrompt">Custom system prompt. Empty to use the default.</param>
+    /// <param name="logger">Optional logger for diagnostics.</param>
     public OllamaChunkContextualizer(
         string baseUrl, string model,
         string keepAlive, int numCtx,
@@ -49,6 +58,7 @@ public sealed class OllamaChunkContextualizer : IChunkContextualizer
             : value;
     }
 
+    /// <inheritdoc />
     public async Task<EnrichResult> EnrichAsync(
         string chunkText,
         string? documentContext,

@@ -1,4 +1,4 @@
-namespace FieldCure.Mcp.Rag.Storage;
+﻿namespace FieldCure.Mcp.Rag.Storage;
 
 /// <summary>
 /// A chunk in <see cref="Models.ChunkIndexStatus.PendingEmbedding"/> state

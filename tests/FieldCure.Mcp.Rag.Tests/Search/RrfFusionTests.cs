@@ -1,4 +1,4 @@
-using FieldCure.Mcp.Rag.Search;
+﻿using FieldCure.Mcp.Rag.Search;
 
 namespace FieldCure.Mcp.Rag.Tests.Search;
 

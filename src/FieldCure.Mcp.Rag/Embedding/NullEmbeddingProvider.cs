@@ -6,14 +6,18 @@
 /// </summary>
 public sealed class NullEmbeddingProvider : IEmbeddingProvider
 {
+    /// <inheritdoc />
     public int Dimension => 0;
+    /// <inheritdoc />
     public string ModelId => "null";
 
+    /// <inheritdoc />
     public Task<float[]> EmbedAsync(string text, CancellationToken ct = default)
     {
         return Task.FromResult(Array.Empty<float>());
     }
 
+    /// <inheritdoc />
     public Task<float[][]> EmbedBatchAsync(
         IReadOnlyList<string> texts, CancellationToken ct = default)
     {
