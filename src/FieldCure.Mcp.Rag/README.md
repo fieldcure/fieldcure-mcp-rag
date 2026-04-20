@@ -25,7 +25,9 @@ fieldcure-mcp-rag
 - **exec-queue** — sequential orchestrator for queued indexing requests. No GPU contention.
 - **prune-orphans** — deletes GUID-named folders without config.json. Protects backups.
 
-API keys are resolved from environment variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.).
+API keys:
+- **`serve` (stdio)** — environment variable (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.) → MCP Elicitation fallback on the first tool call that needs a key. Session cache, max 2 re-elicits.
+- **`exec` / `exec-queue`** (headless batch) — environment variable only. If unset, the run soft-fails with a clear message.
 
 ## Quick Start
 
@@ -95,7 +97,11 @@ fieldcure-mcp-rag serve --base-path "%LOCALAPPDATA%\FieldCure\Mcp.Rag"
 
 ## Supported Formats
 
-DOCX, HWPX, XLSX, PPTX, PDF (with OCR), TXT, MD
+DOCX, HWPX, XLSX, PPTX, PDF, TXT, MD. Scanned PDFs without a text layer fall back to Tesseract OCR **on Windows only** — see "Platform support" below.
+
+## Platform support
+
+Cross-platform on Windows, Linux, macOS. Text extraction from all supported document formats works everywhere. The optional OCR package (`FieldCure.DocumentParsers.Ocr`, ships Tesseract native binaries) is referenced conditionally in the server's `.csproj` via `$([MSBuild]::IsOSPlatform('Windows'))`, so Linux and macOS builds are pure managed code and scanned-PDF pages on those platforms yield empty text.
 
 ## Requirements
 

@@ -1,5 +1,27 @@
 ﻿# Release Notes
 
+## v2.1.0 (2026-04-20)
+
+### Changed
+
+- **Cross-platform hardening of the OCR fallback** — the Tesseract-based OCR path is now enforced Windows-only at the package level instead of purely at runtime:
+  - `FieldCure.DocumentParsers.Ocr` is referenced via an MSBuild `Condition="$([MSBuild]::IsOSPlatform('Windows'))"`.
+  - A `WINDOWS_OCR` compile symbol gates the `AddOcrSupport` call and excludes `LazyOcrEngine.cs` from non-Windows builds.
+  - Linux and macOS builds are pure managed code with no Tesseract native binaries. Scanned PDFs without a text layer yield empty text on those platforms; text-layer PDFs work normally everywhere.
+- **DocumentParsers 1.x → 2.x** — PDF text extraction (PdfPig) is now part of the core `FieldCure.DocumentParsers` package; the dedicated `FieldCure.DocumentParsers.Pdf` reference is removed. `FieldCure.DocumentParsers.Pdf.Ocr` was renamed to `FieldCure.DocumentParsers.Ocr`. Public MCP tool surface is unchanged.
+- **Credential resolution per mode** — `serve` (stdio) uses env var → MCP Elicitation with a session cache and a 2-attempt re-elicit cap. `exec` and `exec-queue` (headless batch) use env var only and soft-fail with a clear message when unset. See [ADR-001](https://github.com/fieldcure/fieldcure-assiststudio/blob/main/docs/ADR-001-MCP-Credential-Management.md) Phase 3a.
+
+### Added
+
+- **Ubuntu CI job** — `.github/workflows/ci.yml` now builds against both `windows-latest` and `ubuntu-latest` so the cross-platform guarantee is regression-tested every push.
+- **XML doc tags** filled in across the source and test trees — every public and private method/type surface now carries `/// <summary>` where previously absent.
+
+### Fixed
+
+- **`SearchDocumentsTool` / `GetDocumentChunkTool`** class-level XML doc blocks had been placed after `[McpServerToolType]`; moved above the attribute so the compiler attaches them to the class. No runtime change.
+
+---
+
 ## v2.0.0 (2026-04-17)
 
 ### Breaking
