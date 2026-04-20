@@ -1,6 +1,4 @@
-using FieldCure.DocumentParsers.Pdf;
-using FieldCure.DocumentParsers.Pdf.Ocr;
-using System.Runtime.InteropServices;
+﻿using FieldCure.DocumentParsers.Ocr;
 
 namespace FieldCure.Mcp.Rag;
 
@@ -22,7 +20,7 @@ internal sealed class LazyOcrEngine : IOcrEngine, IDisposable
     {
         EnsureInitialized();
 
-        if (_unavailable)
+        if (_unavailable || !OperatingSystem.IsWindows())
             return Task.FromResult(string.Empty);
 
         return _inner!.RecognizeAsync(imageBytes);
@@ -37,7 +35,7 @@ internal sealed class LazyOcrEngine : IOcrEngine, IDisposable
             if (_initialized) return;
             _initialized = true;
 
-            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            if (!OperatingSystem.IsWindows())
             {
                 _unavailable = true;
                 Console.Error.WriteLine(
@@ -62,6 +60,7 @@ internal sealed class LazyOcrEngine : IOcrEngine, IDisposable
 
     public void Dispose()
     {
-        _inner?.Dispose();
+        if (OperatingSystem.IsWindows())
+            _inner?.Dispose();
     }
 }

@@ -44,9 +44,21 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.*" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.*" />
     <PackageReference Include="System.Net.Http.Json" Version="8.*" />
-    <PackageReference Include="FieldCure.DocumentParsers" Version="1.*" />
-    <PackageReference Include="FieldCure.DocumentParsers.Pdf" Version="1.*" />
-    <PackageReference Include="FieldCure.DocumentParsers.Pdf.Ocr" Version="1.*" />
+    <PackageReference Include="FieldCure.DocumentParsers" Version="2.*" />
+  </ItemGroup>
+
+  <!-- OCR is Windows-only (Tesseract native binaries). On Linux/macOS the core
+       PdfPig text-only parser is used; scanned-PDF pages yield empty text. -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <PackageReference Include="FieldCure.DocumentParsers.Ocr" Version="1.*" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <DefineConstants>$(DefineConstants);WINDOWS_OCR</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup Condition="!$([MSBuild]::IsOSPlatform('Windows'))">
+    <Compile Remove="LazyOcrEngine.cs" />
   </ItemGroup>
 
 </Project>

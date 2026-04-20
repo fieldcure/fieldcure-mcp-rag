@@ -1,8 +1,9 @@
 ﻿using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
-using FieldCure.DocumentParsers.Pdf;
-using FieldCure.DocumentParsers.Pdf.Ocr;
+#if WINDOWS_OCR
+using FieldCure.DocumentParsers.Ocr;
+#endif
 using FieldCure.Mcp.Rag;
 using FieldCure.Mcp.Rag.Chunking;
 using FieldCure.Mcp.Rag.Configuration;
@@ -15,8 +16,15 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-// Register PDF parser. OCR is loaded lazily on first scanned page (Windows only).
-DocumentParserFactoryExtensions.AddPdfSupport(new LazyOcrEngine());
+// DP core auto-registers a text-only PdfParser. On Windows, upgrade the .pdf
+// entry to an OCR-fallback parser; the OCR engine loads its native binaries
+// lazily on the first scanned page. On non-Windows platforms the core
+// text-only parser is used and scanned pages are silently skipped — DP.Ocr
+// is not referenced on those platforms (see FieldCure.Mcp.Rag.csproj).
+#if WINDOWS_OCR
+if (OperatingSystem.IsWindows())
+    DocumentParserFactoryOcrExtensions.AddOcrSupport(new LazyOcrEngine());
+#endif
 
 
 if (args.Length > 0)
@@ -197,7 +205,7 @@ async Task<int> RunPruneOrphansAsync(string[] args)
 /// </summary>
 static string? ParseStringArg(string[] args, string name)
 {
-    for (int i = 0; i < args.Length - 1; i++)
+    for (var i = 0; i < args.Length - 1; i++)
     {
         if (args[i].Equals(name, StringComparison.OrdinalIgnoreCase))
             return args[i + 1];
@@ -207,7 +215,7 @@ static string? ParseStringArg(string[] args, string name)
 
 static string? ParseArg(string[] args, string name)
 {
-    for (int i = 0; i < args.Length - 1; i++)
+    for (var i = 0; i < args.Length - 1; i++)
     {
         if (args[i].Equals(name, StringComparison.OrdinalIgnoreCase))
             return Path.GetFullPath(args[i + 1]);
