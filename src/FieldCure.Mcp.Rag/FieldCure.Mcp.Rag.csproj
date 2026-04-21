@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>2.1.0</Version>
+    <Version>2.1.1</Version>
     <PackageId>FieldCure.Mcp.Rag</PackageId>
 
     <Authors>Jong Hyun Kim</Authors>
@@ -20,7 +20,7 @@
     <RepositoryUrl>https://github.com/fieldcure/fieldcure-mcp-rag</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>mcp;mcp-server;ai;dotnet;rag;embedding;vector-search;knowledge-base;bm25</PackageTags>
-    <PackageReleaseNotes>v2.1.0: FieldCure.DocumentParsers upgraded to 2.x (PDF text extraction promoted to core). Tesseract OCR is now Windows-only at the package level via an MSBuild condition and a WINDOWS_OCR compile symbol — Linux and macOS builds ship as pure managed code. Credential resolution is split by mode: serve uses env var → Elicitation; exec / exec-queue uses env var only and soft-fails. Ubuntu CI added alongside Windows. XML doc tags filled in across the source tree.</PackageReleaseNotes>
+    <PackageReleaseNotes>v2.1.1: Update MCP package metadata to the latest server.json format for NuGet and VS Code integration.</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>Logo.png</PackageIcon>
 

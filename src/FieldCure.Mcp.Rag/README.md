@@ -1,8 +1,10 @@
-﻿# FieldCure.Mcp.Rag
+# FieldCure.Mcp.Rag
 
 > Requires [Ollama](https://ollama.ai) 0.4.0 or later when using Ollama for embedding or contextualization.
 
 **MCP RAG server with hybrid BM25 + vector search and AI-powered chunk contextualization** — indexes documents from configured source paths, enriches chunks with AI-generated context and keywords, generates embeddings, and performs keyword (FTS5) and semantic (cosine similarity) search with Reciprocal Rank Fusion.
+
+<!-- mcp-name: io.github.fieldcure/rag -->
 
 ## Install
 
