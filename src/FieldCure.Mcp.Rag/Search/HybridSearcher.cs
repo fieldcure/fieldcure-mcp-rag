@@ -54,7 +54,7 @@ public sealed class HybridSearcher(SqliteVectorStore store, IEmbeddingProvider e
         if (mode == SearchMode.Hybrid)
         {
             // Vector search
-            var queryEmbedding = await embeddingProvider.EmbedAsync(query, ct);
+            var queryEmbedding = await embeddingProvider.EmbedQueryAsync(query, ct);
             var vectorResults = await store.SearchAsync(queryEmbedding, candidateK, threshold);
 
             var bm25Ids = bm25Results.Select(r => r.ChunkId).ToList();
@@ -65,7 +65,7 @@ public sealed class HybridSearcher(SqliteVectorStore store, IEmbeddingProvider e
         }
         else if (mode == SearchMode.VectorOnly)
         {
-            var queryEmbedding = await embeddingProvider.EmbedAsync(query, ct);
+            var queryEmbedding = await embeddingProvider.EmbedQueryAsync(query, ct);
             var vectorResults = await store.SearchAsync(queryEmbedding, topK, threshold);
 
             scoredIds = vectorResults.Select(r => (r.ChunkId, (double)r.Score)).ToList();
