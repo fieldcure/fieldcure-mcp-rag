@@ -56,6 +56,7 @@ fieldcure-mcp-rag
 ### Integration
 - **Ollama native** — embedding via `/api/embed`, contextualization via `/api/chat` with `keep_alive` and `num_ctx` support. Requires Ollama 0.4.0+.
 - **OpenAI-compatible** — embedding via `/v1/embeddings`, contextualization via `/v1/chat/completions`. Works with OpenAI, Azure OpenAI, Groq, LM Studio, Together AI.
+- **Gemini native** — embedding via `/v1beta/models/{model}:embedContent` with `task_type` asymmetric retrieval (`RETRIEVAL_DOCUMENT` / `RETRIEVAL_QUERY`) and Matryoshka dimension truncation (768 / **1536** / 3072). `gemini-embedding-2`, multilingual, 8k token input.
 - **Anthropic** — contextualization via `/v1/messages`.
 - **API keys via environment variables** — `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc. Batch indexing commands (`exec`, `exec-queue`) are env-var-only. Interactive MCP search can fall back to MCP elicitation when the client supports it.
 - Standard MCP stdio transport (JSON-RPC over stdin/stdout)
@@ -213,7 +214,24 @@ For full retrieval quality with semantic search and contextualization, add `embe
 }
 ```
 
-API keys are resolved from environment variables: `apiKeyPreset: "OpenAI"` → `OPENAI_API_KEY`, `"Claude"` → `ANTHROPIC_API_KEY`.
+API keys are resolved from environment variables: `apiKeyPreset: "OpenAI"` → `OPENAI_API_KEY`, `"Claude"` → `ANTHROPIC_API_KEY`, `"Gemini"` (or `"Google"`) → `GEMINI_API_KEY`.
+
+**Gemini embedding example** — asymmetric retrieval with 1536-dim Matryoshka truncation (50% storage of full 3072 with identical MTEB score):
+
+```json
+"embedding": {
+  "provider": "gemini",
+  "model": "gemini-embedding-2",
+  "apiKeyPreset": "Gemini",
+  "dimension": 1536
+}
+```
+
+| Dimension | MTEB | Storage | Use case |
+|-----------|------|---------|-------------|
+| 768       | 67.99 | 25%   | Storage-constrained |
+| **1536**  | **68.17** | **50%** | **Recommended default** |
+| 3072      | 68.17 | 100%  | Maximum quality (pre-normalized) |
 In `serve` mode, `search_documents` can also prompt via MCP elicitation when the client supports it. In `exec` and `exec-queue`, missing keys must be provided via environment variables.
 
 ### 2. Index documents
@@ -257,6 +275,8 @@ Add to `claude_desktop_config.json`:
 | `name` | Display name |
 | `sourcePaths` | List of folders to index (multiple supported) |
 | `contextualizer.provider` | `"anthropic"`, `"openai"`, `"ollama"`, or empty to disable |
+| `embedding.provider` | `"openai"`, `"ollama"`, `"gemini"`, or empty to disable |
+| `embedding.dimension` | Output dimension. `0` = provider default. Gemini supports MRL truncation: 768 / **1536** / 3072. |
 | `contextualizer.model` | Model ID, or empty to disable contextualization |
 | `contextualizer.apiKeyPreset` | Maps to env var: `"OpenAI"` → `OPENAI_API_KEY`, `"Claude"` → `ANTHROPIC_API_KEY` |
 | `contextualizer.baseUrl` | API base URL override (null = provider default) |

@@ -39,7 +39,10 @@ internal static class EmbeddingProviderFactory
                 model:     config.Model,
                 dimension: config.Dimension),
 
-            // "gemini" branch added in a follow-up commit (see todo 85).
+            "gemini" => new GeminiEmbeddingProvider(
+                apiKey:    apiKey,
+                model:     config.Model,
+                dimension: config.Dimension), // 0 = API default (3072)
 
             _ => throw new NotSupportedException(
                 $"Unknown embedding provider kind: '{config.Provider}'."),

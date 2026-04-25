@@ -23,6 +23,9 @@ internal static class EmbeddingBatchSizes
             ["ollama:qwen3-embedding:0.6b"] = 256,
             ["ollama:nomic-embed-text"] = 256,
             ["ollama:mxbai-embed-large"] = 128,
+
+            // Gemini — :batchEmbedContents accepts up to 100 items per request.
+            ["gemini:gemini-embedding-2"] = 100,
         };
 
     /// <summary>
