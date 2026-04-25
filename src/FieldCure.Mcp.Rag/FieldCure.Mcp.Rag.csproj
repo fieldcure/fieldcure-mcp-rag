@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>2.1.1</Version>
+    <Version>2.2.0</Version>
     <PackageId>FieldCure.Mcp.Rag</PackageId>
 
     <Authors>Jong Hyun Kim</Authors>
@@ -20,7 +20,7 @@
     <RepositoryUrl>https://github.com/fieldcure/fieldcure-mcp-rag</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>mcp;mcp-server;ai;dotnet;rag;embedding;vector-search;knowledge-base;bm25</PackageTags>
-    <PackageReleaseNotes>v2.1.1: Update MCP package metadata to the latest server.json format for NuGet and VS Code integration.</PackageReleaseNotes>
+    <PackageReleaseNotes>v2.2.0: Add Gemini embedding provider (gemini-embedding-2) with task_type asymmetric retrieval and Matryoshka dimension truncation (768/1536/3072). New IEmbeddingProvider.EmbedQueryAsync hook for query-side embedding.</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>Logo.png</PackageIcon>
 

@@ -1,5 +1,64 @@
 # Release Notes
 
+## v2.2.0 (2026-04-25)
+
+### Added
+
+- **`GeminiEmbeddingProvider`** — native Google Gemini embedding API support.
+  - Model: `gemini-embedding-2` (multilingual, 8k token input).
+  - Asymmetric retrieval via `task_type` (`RETRIEVAL_DOCUMENT` for indexing,
+    `RETRIEVAL_QUERY` for search) — Google reports 3–7% retrieval quality
+    improvement over symmetric embedding.
+  - Matryoshka dimension truncation via `output_dimensionality`
+    (768 / 1536 / 3072). Recommended: **1536** (sweet spot — 50% storage
+    of 3072 with identical MTEB score).
+  - Client-side L2 normalization for sub-3072 outputs (the API
+    pre-normalizes only the full-length vector).
+  - Native endpoint (`/v1beta/models/{model}:embedContent`) rather than
+    the OpenAI compatibility layer, which does not expose `task_type`.
+- **`EmbeddingProviderFactory`** — central provider construction. Unifies
+  the switch-on-string logic that was duplicated across `ExecQueueRunner`,
+  `Program`, and `SearchDocumentsTool`.
+- **`IEmbeddingProvider.EmbedQueryAsync`** — query-time embedding hook for
+  asymmetric embedders. Default implementation delegates to `EmbedAsync`,
+  so symmetric providers (Ollama, OpenAI text-embedding-3) are unaffected.
+
+### Changed
+
+- `HybridSearcher` now calls `EmbedQueryAsync` instead of `EmbedAsync` at
+  the two query-side call sites. No behavior change for symmetric embedders.
+
+### Migration
+
+- No schema or config changes. Existing indexes remain valid.
+- To adopt Gemini, add a KB with `provider: "gemini"` and re-index.
+  Vector spaces are not interchangeable across embedders, so existing
+  Ollama/OpenAI indexes must be rebuilt to switch.
+
+### Configuration
+
+```json
+{
+  "embedding": {
+    "provider": "gemini",
+    "model": "gemini-embedding-2",
+    "apiKeyPreset": "Gemini",
+    "dimension": 1536
+  }
+}
+```
+
+`GEMINI_API_KEY` is resolved from the `Gemini` (or `Google`) credential
+preset via the existing `ApiKeyEnvironment` mapping.
+
+| Dimension | MTEB | Storage | Use case |
+|-----------|------|---------|-------------|
+| 768       | 67.99 | 25%   | Storage-constrained |
+| **1536**  | **68.17** | **50%** | **Recommended default** |
+| 3072      | 68.17 | 100%  | Maximum quality (pre-normalized) |
+
+---
+
 ## v2.1.1 (2026-04-20)
 
 - Update MCP package metadata to the latest `server.json` format for NuGet and VS Code integration.
