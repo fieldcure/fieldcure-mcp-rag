@@ -132,25 +132,13 @@ public static class SearchDocumentsTool
         if (string.IsNullOrWhiteSpace(config.Model))
             return (new NullEmbeddingProvider(), null, null);
 
-        var baseUrl = config.BaseUrl ?? config.Provider.ToLowerInvariant() switch
-        {
-            "ollama" => "http://localhost:11434",
-            "openai" => "https://api.openai.com",
-            _ => "http://localhost:11434",
-        };
-
+        // Local providers need no key — build immediately.
         if (config.Provider.Equals("ollama", StringComparison.OrdinalIgnoreCase))
-        {
-            return (new OllamaEmbeddingProvider(
-                baseUrl,
-                config.Model,
-                config.KeepAlive ?? OllamaDefaults.KeepAlive,
-                config.Dimension), null, null);
-        }
+            return (EmbeddingProviderFactory.Create(config, apiKey: ""), null, null);
 
         var envVarName = ApiKeyEnvironment.GetEnvVarName(config.ApiKeyPreset);
         if (envVarName is null)
-            return (new OpenAiCompatibleEmbeddingProvider(baseUrl, "", config.Model, config.Dimension), null, null);
+            return (EmbeddingProviderFactory.Create(config, apiKey: ""), null, null);
 
         if (forceInteractive)
             keyResolvers.Invalidate(envVarName);
@@ -164,7 +152,7 @@ public static class SearchDocumentsTool
             return (new NullEmbeddingProvider(), envVarName, null);
         }
 
-        return (new OpenAiCompatibleEmbeddingProvider(baseUrl, apiKey, config.Model, config.Dimension), envVarName, null);
+        return (EmbeddingProviderFactory.Create(config, apiKey), envVarName, null);
     }
 
     /// <summary>

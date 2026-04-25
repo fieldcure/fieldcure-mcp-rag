@@ -243,21 +243,7 @@ internal static class ExecQueueRunner
             return new NullEmbeddingProvider();
 
         var apiKey = ApiKeyEnvironment.ResolveOrEmpty(config.ApiKeyPreset);
-
-        var baseUrl = config.BaseUrl ?? config.Provider.ToLowerInvariant() switch
-        {
-            "ollama" => "http://localhost:11434",
-            "openai" => "https://api.openai.com",
-            _ => "http://localhost:11434",
-        };
-
-        if (config.Provider.Equals("ollama", StringComparison.OrdinalIgnoreCase))
-            return new OllamaEmbeddingProvider(
-                baseUrl, config.Model,
-                config.KeepAlive ?? OllamaDefaults.KeepAlive,
-                config.Dimension);
-
-        return new OpenAiCompatibleEmbeddingProvider(baseUrl, apiKey, config.Model, config.Dimension);
+        return EmbeddingProviderFactory.Create(config, apiKey);
     }
 
     /// <summary>
