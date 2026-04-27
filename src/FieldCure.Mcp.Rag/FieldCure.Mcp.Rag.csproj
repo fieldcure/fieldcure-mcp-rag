@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>2.3.0</Version>
+    <Version>2.3.1</Version>
     <PackageId>FieldCure.Mcp.Rag</PackageId>
 
     <Authors>Jong Hyun Kim</Authors>
@@ -20,7 +20,7 @@
     <RepositoryUrl>https://github.com/fieldcure/fieldcure-mcp-rag</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>mcp;mcp-server;ai;dotnet;rag;embedding;vector-search;knowledge-base;bm25</PackageTags>
-    <PackageReleaseNotes>v2.3.0: Windows-conditional audio transcription via FieldCure.DocumentParsers.Audio. Supported audio formats (mp3/wav/m4a/ogg/flac/webm) are transcribed with Whisper.net using an environment-aware model size (Tiny→Large) selected at startup. Each transcript chunk carries audio.model_size and audio.transcribed_at metadata for future reindex auditing.</PackageReleaseNotes>
+    <PackageReleaseNotes>v2.3.1: Republished against FieldCure.DocumentParsers.Audio v0.2.1. WhisperModelSize.Large now resolves to large-v2 instead of large-v3 to escape long-form transcription repetition loops. No Mcp.Rag code changes — but because Mcp.Rag is a dotnet tool that bundles its dependencies at pack time, the republish is required to deliver the Audio fix; v2.3.0 installations keep the large-v3 mapping. First indexing run after upgrade triggers a one-time download of ggml-large-v2.bin (~3 GB); the previous ggml-large-v3.bin cache is orphaned and can be deleted manually from {UserProfile}/.fieldcure/whisper-models/.</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>Logo.png</PackageIcon>
 

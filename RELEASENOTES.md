@@ -1,5 +1,48 @@
 # Release Notes
 
+## v2.3.1 (2026-04-27)
+
+### Changed
+
+- Republished against `FieldCure.DocumentParsers.Audio` **v0.2.1**. The
+  bundled Whisper model backing `WhisperModelSize.Large` moves from
+  large-v3 to **large-v2** to escape long-form transcription repetition
+  loops. No Mcp.Rag code changes; the indexing pipeline still asks the
+  Audio package for the recommended size and `LazyAudioTranscriber`
+  enforces it across the run.
+
+### Why this is a republish, not just a transitive bump
+
+Mcp.Rag ships as a `dotnet tool` (`PackAsTool=true`), which embeds the
+exact `FieldCure.DocumentParsers.Audio.dll` resolved at pack time inside
+its own .nupkg. v2.3.0 was packed against Audio v0.2.0, so existing v2.3.0
+installations carry the large-v3-mapped Audio assembly and remain
+exposed to the long-form loop. v2.3.1 is the republish that delivers the
+fix; users must `dotnet tool update fieldcure-mcp-rag` (or equivalent)
+to receive it.
+
+The benchmark behind the v0.2.1 Audio decision is in the DocumentParsers
+repository at `tools/AudioBenchmark/baseline-2026-04-27.md`.
+
+### Migration
+
+- **Tool update required.** Existing v2.3.0 installations keep the
+  large-v3 model and stay exposed to the loop; run `dotnet tool update
+  fieldcure-mcp-rag` (or equivalent) to pick up v2.3.1.
+- **Cache cleanup** (one-time, optional): the previous
+  `~/.fieldcure/whisper-models/ggml-large-v3.bin` (~3 GB) is no longer
+  read. Delete manually if disk space matters. The replacement
+  `ggml-large-v2.bin` downloads on the first audio-bearing indexing run
+  after upgrade.
+- **Re-index audio knowledge bases**: chunks transcribed before this
+  upgrade still carry the loop output. The new chunks are stamped with
+  the same `audio.model_size = Large` enum value, but the underlying
+  Whisper weights differ. The chunk-level `audio.transcribed_at`
+  timestamp is what distinguishes pre-upgrade from post-upgrade
+  transcripts; query that field to find re-indexable chunks.
+- **No CLI / config changes.** `serve` / `exec` / `exec-queue` surface
+  unchanged.
+
 ## v2.3.0 (2026-04-27)
 
 ### Added
