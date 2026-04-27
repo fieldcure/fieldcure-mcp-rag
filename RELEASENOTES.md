@@ -1,5 +1,46 @@
 # Release Notes
 
+## v2.3.0 (2026-04-27)
+
+### Added
+
+- **Windows-conditional audio transcription** via
+  `FieldCure.DocumentParsers.Audio` 0.2.0. Files with extensions `.mp3`,
+  `.wav`, `.m4a`, `.ogg`, `.flac`, and `.webm` now flow through the same
+  indexing pipeline as documents — transcribed once, chunked, contextualized,
+  embedded, and searchable alongside the rest of the corpus.
+- **`LazyAudioTranscriber`** — defers ggml model download and Whisper
+  runtime loading until the first audio file is processed. Mirrors
+  `LazyOcrEngine`'s deferred-init pattern (thread-safe via
+  `Lazy<Task<...>>` with `ExecutionAndPublication`).
+- **Environment-aware model size selection** at startup. The transcriber
+  calls `WhisperEnvironment.RecommendModelSize(QualityBias.Accuracy)` and
+  enforces the resulting size across the run, so a single indexing pass
+  produces a consistent corpus. The probe result and chosen model size
+  are logged once to stderr for self-diagnosis.
+- **Per-chunk audio metadata** (`audio.model_size`, `audio.transcribed_at`).
+  Stamping every transcript chunk with the model used and a UTC ISO-8601
+  timestamp lays the groundwork for selective reindexing after a hardware
+  upgrade (e.g., "everything previously transcribed with `Tiny`").
+
+### Platform support
+
+- Audio support is **Windows-only** in this release, matching the
+  Whisper.net + NAudio Media Foundation runtime constraints. On Linux
+  and macOS the `.Audio` package is not referenced and audio files
+  silently fall through with empty text. Cross-platform audio is
+  tracked for a v1.x follow-up.
+
+### Migration
+
+- No code changes required for upstream consumers. The `serve` /
+  `exec` / `exec-queue` CLI surface is unchanged; existing knowledge
+  bases will simply pick up audio files on the next reindex if any
+  are present in `SourcePaths`.
+- First audio file triggers a one-time ggml model download into
+  `{UserProfile}/.fieldcure/whisper-models/`. Plan for that bandwidth
+  on the host that runs the first indexing pass.
+
 ## v2.2.0 (2026-04-25)
 
 ### Added

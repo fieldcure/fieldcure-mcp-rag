@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>2.2.0</Version>
+    <Version>2.3.0</Version>
     <PackageId>FieldCure.Mcp.Rag</PackageId>
 
     <Authors>Jong Hyun Kim</Authors>
@@ -20,7 +20,7 @@
     <RepositoryUrl>https://github.com/fieldcure/fieldcure-mcp-rag</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>mcp;mcp-server;ai;dotnet;rag;embedding;vector-search;knowledge-base;bm25</PackageTags>
-    <PackageReleaseNotes>v2.2.0: Add Gemini embedding provider (gemini-embedding-2) with task_type asymmetric retrieval and Matryoshka dimension truncation (768/1536/3072). New IEmbeddingProvider.EmbedQueryAsync hook for query-side embedding.</PackageReleaseNotes>
+    <PackageReleaseNotes>v2.3.0: Windows-conditional audio transcription via FieldCure.DocumentParsers.Audio. Supported audio formats (mp3/wav/m4a/ogg/flac/webm) are transcribed with Whisper.net using an environment-aware model size (Tiny→Large) selected at startup. Each transcript chunk carries audio.model_size and audio.transcribed_at metadata for future reindex auditing.</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>Logo.png</PackageIcon>
 
@@ -48,17 +48,22 @@
   </ItemGroup>
 
   <!-- OCR is Windows-only (Tesseract native binaries). On Linux/macOS the core
-       PdfPig text-only parser is used; scanned-PDF pages yield empty text. -->
+       PdfPig text-only parser is used; scanned-PDF pages yield empty text.
+       Audio is Windows-only too (Whisper.net + NAudio Media Foundation): on
+       non-Windows the audio extensions are unsupported and matching files
+       silently return empty text from DocumentParserFactory.GetParser. -->
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
     <PackageReference Include="FieldCure.DocumentParsers.Ocr" Version="1.*" />
+    <PackageReference Include="FieldCure.DocumentParsers.Audio" Version="0.*" />
   </ItemGroup>
 
   <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
-    <DefineConstants>$(DefineConstants);WINDOWS_OCR</DefineConstants>
+    <DefineConstants>$(DefineConstants);WINDOWS_OCR;WINDOWS_AUDIO</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup Condition="!$([MSBuild]::IsOSPlatform('Windows'))">
     <Compile Remove="LazyOcrEngine.cs" />
+    <Compile Remove="LazyAudioTranscriber.cs" />
   </ItemGroup>
 
 </Project>

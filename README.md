@@ -3,7 +3,7 @@
 [![NuGet](https://img.shields.io/nuget/v/FieldCure.Mcp.Rag)](https://www.nuget.org/packages/FieldCure.Mcp.Rag)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/fieldcure/fieldcure-mcp-rag/blob/main/LICENSE)
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server for indexing and searching local document collections. Supports DOCX, HWPX, PDF (with OCR), Excel, and PowerPoint, with hybrid keyword + semantic search optimized for Korean and English.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server for indexing and searching local document collections. Supports DOCX, HWPX, PDF (with OCR), Excel, PowerPoint, and audio (Whisper transcription, Windows-only), with hybrid keyword + semantic search optimized for Korean and English.
 
 Built with C# and the official [MCP C# SDK](https://github.com/modelcontextprotocol/csharp-sdk).
 
@@ -37,6 +37,7 @@ fieldcure-mcp-rag
 - 2-commit pipeline preserves expensive upstream work across embedding failures (see [How Indexing Works](#how-indexing-works))
 - Math equation extraction from DOCX/HWPX as `[math: LaTeX]` blocks
 - PDF with OCR fallback (Tesseract eng+kor) for scanned pages
+- Audio transcription (`.mp3`, `.wav`, `.m4a`, `.ogg`, `.flac`, `.webm`) via Whisper.net — **Windows-only**. Model size (Tiny→Large) is auto-selected from detected GPU/RAM/cores at startup; each transcript chunk records `audio.model_size` and `audio.transcribed_at` for future reindex auditing
 - Cross-process indexing lock with stale PID auto-cleanup
 - Orphan cleanup for deleted files
 
@@ -77,13 +78,13 @@ This is enabled by setting `contextualizer` in `config.json`. It can be disabled
 
 The `exec` command runs a 5-stage pipeline per file:
 
-1. **Extract** — text from document (DOCX, PDF OCR, etc.)
+1. **Extract** — text from document (DOCX, PDF OCR, audio transcription, etc.)
 2. **Chunk** — split into ~1000 char windows
 3. **Contextualize** — LLM enrichment (optional, see [above](#chunk-contextualization))
 4. **Embed** — vector embedding via API
 5. **Persist** — save to SQLite
 
-For large files, Stage 1 alone can take 20+ minutes via OCR (e.g., a 596-page scanned PDF). To prevent expensive upstream work from being lost when later stages fail, the pipeline uses a **2-commit model**:
+For large files, Stage 1 alone can take 20+ minutes — OCR on a 596-page scanned PDF, or Whisper transcription of a multi-hour audio recording. The first audio file in any KB also pays a one-time ggml model download (cached under `{UserProfile}/.fieldcure/whisper-models/`). To prevent expensive upstream work from being lost when later stages fail, the pipeline uses a **2-commit model**:
 
 ```
 Stages 1-3 (Extract → Chunk → Contextualize)

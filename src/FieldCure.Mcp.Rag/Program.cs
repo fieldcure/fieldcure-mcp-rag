@@ -4,6 +4,9 @@ using System.Text;
 #if WINDOWS_OCR
 using FieldCure.DocumentParsers.Ocr;
 #endif
+#if WINDOWS_AUDIO
+using FieldCure.DocumentParsers.Audio;
+#endif
 using FieldCure.Mcp.Rag;
 using FieldCure.Mcp.Rag.Chunking;
 using FieldCure.Mcp.Rag.Configuration;
@@ -24,6 +27,26 @@ using Microsoft.Extensions.Logging;
 #if WINDOWS_OCR
 if (OperatingSystem.IsWindows())
     DocumentParserFactoryOcrExtensions.AddOcrSupport(new LazyOcrEngine());
+#endif
+
+// Audio transcription is Windows-only (Whisper.net + NAudio Media Foundation).
+// On non-Windows the Audio package is not referenced and matching files
+// (.mp3 / .wav / .m4a / .ogg / .flac / .webm) silently return empty text.
+#if WINDOWS_AUDIO
+if (OperatingSystem.IsWindows())
+{
+    DocumentParserFactoryAudioExtensions.AddAudioSupport(new LazyAudioTranscriber());
+
+    // Emit a one-shot diagnostic snapshot to stderr so users can self-diagnose
+    // recommendation outcomes ("why am I getting Tiny instead of Medium?").
+    // stdout is reserved for the MCP stdio transport.
+    var probe = WhisperEnvironment.Probe();
+    var recommended = WhisperEnvironment.RecommendModelSize();
+    Console.Error.WriteLine(
+        $"[Audio] CUDA={probe.CudaAvailable} Vulkan={probe.VulkanAvailable} " +
+        $"RAM={probe.SystemRamBytes / (1024L * 1024 * 1024)}GB " +
+        $"Cores={probe.LogicalCores} → recommended={recommended}");
+}
 #endif
 
 

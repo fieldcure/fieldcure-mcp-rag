@@ -267,9 +267,10 @@ public sealed class IndexingEngine
 
                     // === Stage 1: Extract ===
                     string text;
+                    string? perFileMetadataJson;
                     try
                     {
-                        text = await ParseDocumentAsync(filePath);
+                        (text, perFileMetadataJson) = await ParseDocumentAsync(filePath);
                     }
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
                     catch (Exception ex)
@@ -319,6 +320,7 @@ public sealed class IndexingEngine
                             ChunkIndex = i,
                             Content = chunks[i].Content,
                             CharOffset = chunks[i].CharOffset,
+                            Metadata = perFileMetadataJson ?? "{}",
                         };
                         chunkInfos[i] = new ChunkWriteInfo
                         {
@@ -1003,23 +1005,77 @@ public sealed class IndexingEngine
     }
 
     /// <summary>
-    /// Extracts text content from a file using DocumentParsers, falling back to raw read for .txt/.md.
+    /// File extensions handled by the audio transcription parser. Kept as a
+    /// local copy (rather than reflecting on the registered parser) so the
+    /// metadata-stamping path stays a no-op when the Audio package is absent
+    /// on non-Windows builds.
     /// </summary>
-    static async Task<string> ParseDocumentAsync(string filePath)
+    static readonly HashSet<string> AudioExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".mp3", ".wav", ".m4a", ".ogg", ".flac", ".webm",
+    };
+
+    /// <summary>
+    /// Extracts text from a source file and returns any per-file metadata to
+    /// be propagated to every chunk derived from it. Falls back to a raw read
+    /// for <c>.txt</c>/<c>.md</c>. Per-file metadata is currently emitted only
+    /// for transcribed audio sources — see <see cref="BuildAudioMetadataJson"/>.
+    /// </summary>
+    static async Task<(string Text, string? MetadataJson)> ParseDocumentAsync(string filePath)
     {
         var extension = Path.GetExtension(filePath).ToLowerInvariant();
 
         if (extension is ".txt" or ".md")
-            return await File.ReadAllTextAsync(filePath);
+            return (await File.ReadAllTextAsync(filePath), null);
 
         var parser = DocumentParserFactory.GetParser(extension);
-        if (parser is not null)
-        {
-            var bytes = await File.ReadAllBytesAsync(filePath);
-            return parser.ExtractText(bytes);
-        }
+        if (parser is null)
+            return ("", null);
 
-        return "";
+        var bytes = await File.ReadAllBytesAsync(filePath);
+        var text = parser.ExtractText(bytes);
+
+        // Stamp transcribed-audio chunks with the model size and transcription
+        // time so a future hardware upgrade can identify reindex candidates
+        // (e.g., "everything transcribed with Tiny on a CPU-only host"). The
+        // accuracy of audio.transcribed_at is per-file, not per-segment — the
+        // chunker derives multiple chunks from one transcript and they all
+        // share the same parse moment, which matches the reindex-decision use
+        // case. Empty text means transcription was skipped or yielded nothing.
+        string? metadataJson = null;
+        if (!string.IsNullOrWhiteSpace(text) && AudioExtensions.Contains(extension))
+            metadataJson = BuildAudioMetadataJson();
+
+        return (text, metadataJson);
+    }
+
+    /// <summary>
+    /// Returns a JSON object stamping transcribed-audio chunks with the model
+    /// size used and the UTC transcription time. Returns <see langword="null"/>
+    /// when audio support is unavailable (non-Windows build, or no transcriber
+    /// was registered) so the chunk falls back to the empty default metadata.
+    /// </summary>
+    static string? BuildAudioMetadataJson()
+    {
+#if WINDOWS_AUDIO
+        // Runtime OS guard satisfies CA1416 — LazyAudioTranscriber and
+        // WhisperModelSize are both [SupportedOSPlatform("windows")], so the
+        // analyzer needs to see this branch is unreachable on other OSes even
+        // though the WINDOWS_AUDIO compile constant already implies it.
+        if (!OperatingSystem.IsWindows()) return null;
+
+        var modelSize = LazyAudioTranscriber.Current?.ModelSize;
+        if (modelSize is null) return null;
+
+        var payload = new Dictionary<string, string>
+        {
+            ["audio.model_size"] = modelSize.Value.ToString(),
+            ["audio.transcribed_at"] = DateTime.UtcNow.ToString("o"),
+        };
+        return JsonSerializer.Serialize(payload);
+#else
+        return null;
+#endif
     }
 
     /// <summary>Computes a SHA-256 hash of the file contents for change detection.</summary>
