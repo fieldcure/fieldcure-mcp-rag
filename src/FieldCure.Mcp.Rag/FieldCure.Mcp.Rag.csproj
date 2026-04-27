@@ -20,7 +20,7 @@
     <RepositoryUrl>https://github.com/fieldcure/fieldcure-mcp-rag</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>mcp;mcp-server;ai;dotnet;rag;embedding;vector-search;knowledge-base;bm25</PackageTags>
-    <PackageReleaseNotes>v2.3.2: Hotfix for missing Whisper native runtime in v2.3.1 — re-declare Whisper.net.Runtime / .Cuda / .Vulkan PackageReferences directly in Mcp.Rag because PackAsTool strips runtimes/&lt;rid&gt;/native/ files from indirect dependencies, leaving v2.3.1 unable to load whisper.dll. Also wrap get_index_info handler in a structured-error catch so failures (e.g. SqliteException on a fresh KB) return valid JSON ({status:"error",error:"..."}) instead of an MCP plain-text wrap that hosts cannot parse.</PackageReleaseNotes>
+    <PackageReleaseNotes>v2.3.2: Hotfix for missing Whisper native runtime in v2.3.1 — re-declare Whisper.net.Runtime PackageReference directly in Mcp.Rag because PackAsTool strips runtimes/&lt;rid&gt;/native/ files from indirect dependencies, leaving v2.3.1 unable to load whisper.dll. CPU-only runtime: CUDA/Vulkan packages omitted to keep the tool nupkg under nuget.org's 250 MB limit; Whisper transcription falls back to CPU. Also wrap get_index_info handler in a structured-error catch so failures (e.g. SqliteException on a fresh KB) return valid JSON ({status:"error",error:"..."}) instead of an MCP plain-text wrap that hosts cannot parse.</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>Logo.png</PackageIcon>
 
@@ -56,17 +56,21 @@
     <PackageReference Include="FieldCure.DocumentParsers.Ocr" Version="1.*" />
     <PackageReference Include="FieldCure.DocumentParsers.Audio" Version="0.*" />
 
-    <!-- Whisper.net native runtimes do not flow transitively into the
+    <!-- Whisper.net native runtime does not flow transitively into the
          packaged dotnet-tool output (PackAsTool strips runtimes/<rid>/native/
-         from indirect dependencies), so DocumentParsers.Audio's references
-         must be re-declared here. Without these the published tool throws
+         from indirect dependencies), so DocumentParsers.Audio's reference
+         must be re-declared here. Without it the published tool throws
          "Native Library not found in default paths" on the first audio
-         indexing call. CPU runtime is mandatory; CUDA/Vulkan provide GPU
-         acceleration when matching hardware drivers are present and fall
-         back to CPU otherwise. -->
+         indexing call.
+
+         CPU runtime only. The matching .Cuda (~73 MB Win + ~80 MB Linux)
+         and .Vulkan (~47 MB Win + ~47 MB Linux) packages would push the
+         tool nupkg past nuget.org's 250 MB limit (observed 413 on first
+         attempt with all three included). Whisper still runs on CPU
+         transcription paths; GPU acceleration via CUDA/Vulkan is a
+         deliberate trade-off deferred until we either RID-split the tool
+         or move runtime selection to a separate optional install. -->
     <PackageReference Include="Whisper.net.Runtime" Version="1.9.0" />
-    <PackageReference Include="Whisper.net.Runtime.Cuda" Version="1.9.0" />
-    <PackageReference Include="Whisper.net.Runtime.Vulkan" Version="1.9.0" />
   </ItemGroup>
 
   <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">

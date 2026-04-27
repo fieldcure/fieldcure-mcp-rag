@@ -15,13 +15,17 @@
   from *indirect* dependencies during tool packaging, so the natives never
   reached the published tool's output directory.
 
-  Fix: re-declare `Whisper.net.Runtime`, `Whisper.net.Runtime.Cuda`, and
-  `Whisper.net.Runtime.Vulkan` as direct `PackageReference`s in
+  Fix: re-declare `Whisper.net.Runtime` as a direct `PackageReference` in
   `Mcp.Rag.csproj` (Windows-only conditional). When a package lists a
   runtime dependency *directly*, `PackAsTool` packs the natives into the
-  tool output. CUDA/Vulkan runtimes are conservative additions: Whisper.net
-  selects them only when matching hardware drivers are present and falls
-  back to CPU otherwise — they do not require GPU presence.
+  tool output. **CPU runtime only** in this hotfix: the matching
+  `Whisper.net.Runtime.Cuda` (~73 MB Windows + ~80 MB Linux) and
+  `Whisper.net.Runtime.Vulkan` (~47 MB + ~47 MB) packages, when included
+  alongside CPU, pushed the tool `.nupkg` past nuget.org's 250 MB hard
+  limit (first push attempt returned `413 RequestEntityTooLarge`).
+  Whisper transcription works on CPU; GPU acceleration is deferred until
+  the tool is RID-split or GPU runtimes are factored into a separate
+  optional install.
 
 ### Operational note
 
