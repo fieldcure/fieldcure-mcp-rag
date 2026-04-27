@@ -1,6 +1,7 @@
 ﻿using System.ComponentModel;
 using System.Text.Json;
 using FieldCure.Mcp.Rag.Contextualization;
+using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 
 namespace FieldCure.Mcp.Rag.Tools;
@@ -26,9 +27,41 @@ public static class GetIndexInfoTool
     /// <returns>A JSON payload containing current index metadata and queue state.</returns>
     public static async Task<string> GetIndexInfo(
         MultiKbContext context,
+        ILogger<MultiKbContext> logger,
         [Description("Knowledge base ID")]
         string kb_id,
         CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await GetIndexInfoCore(context, kb_id, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Without this catch, the MCP framework wraps the exception in a
+            // plain-text "An error occurred invoking 'get_index_info'." reply
+            // that hosts cannot parse as JSON — observed in v2.3.1 when a
+            // brand-new KB has no rag.db yet (SqliteException on first read).
+            // Return a structured error payload so callers see what failed.
+            logger.LogError(ex, "get_index_info({KbId}) failed", kb_id);
+            var errorResult = new
+            {
+                kb_id,
+                status = "error",
+                error = $"{ex.GetType().Name}: {ex.Message}",
+            };
+            return JsonSerializer.Serialize(errorResult, McpJson.Indented);
+        }
+    }
+
+    /// <summary>
+    /// Core implementation extracted so the public entry point can wrap it
+    /// with a structured-error catch.
+    /// </summary>
+    private static async Task<string> GetIndexInfoCore(
+        MultiKbContext context,
+        string kb_id,
+        CancellationToken cancellationToken)
     {
         var kb = context.GetKb(kb_id);
         var store = kb.Store;

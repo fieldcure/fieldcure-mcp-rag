@@ -1,5 +1,71 @@
 # Release Notes
 
+## v2.3.2 (2026-04-27)
+
+### Fixed
+
+- **Whisper native runtime missing from v2.3.1 tool package.** The published
+  v2.3.1 nupkg threw `Native Library not found in default paths. Verify you
+  have included the native Whisper library in your application, or install
+  the default libraries with the Whisper.net.Runtime NuGet.` on every audio
+  file, blocking all KBs that contained `.mp3`/`.wav`/etc. Root cause: the
+  native runtime files (`runtimes/<rid>/native/whisper.dll` and friends)
+  ship inside the `Whisper.net.Runtime*` packages, which `DocumentParsers.Audio`
+  references — but `PackAsTool` strips the `runtimes/<rid>/native/` folder
+  from *indirect* dependencies during tool packaging, so the natives never
+  reached the published tool's output directory.
+
+  Fix: re-declare `Whisper.net.Runtime`, `Whisper.net.Runtime.Cuda`, and
+  `Whisper.net.Runtime.Vulkan` as direct `PackageReference`s in
+  `Mcp.Rag.csproj` (Windows-only conditional). When a package lists a
+  runtime dependency *directly*, `PackAsTool` packs the natives into the
+  tool output. CUDA/Vulkan runtimes are conservative additions: Whisper.net
+  selects them only when matching hardware drivers are present and falls
+  back to CPU otherwise — they do not require GPU presence.
+
+### Operational note
+
+Users who already pulled v2.3.1 will see no Whisper transcription progress
+on KBs containing audio. Symptoms in `index_timing.log`:
+
+```
+[FAILED:extract] some-file.mp3 — Native Library not found in default paths.
+```
+
+Upgrade to v2.3.2 (`dnx FieldCure.Mcp.Rag@2.3.2 ...` or refresh
+auto-update). No data migration needed; rerunning the reindex on the
+affected KB now picks up the audio files cleanly.
+
+### Also in this release — `get_index_info` graceful failure
+
+`get_index_info` previously had no top-level `try/catch`, so any internal
+failure (e.g., `SqliteException` on a fresh KB whose `rag.db` was not yet
+created, or a partially-initialized store after a crashed indexing run)
+bubbled out and the MCP framework wrapped it in a plain-text
+`"An error occurred invoking 'get_index_info'."` reply that hosts could
+not parse as JSON. The host's catch then swallowed the failure silently,
+leaving the user with no diagnostic.
+
+The handler now wraps the body in a structured-error catch: on failure
+it logs the exception with `ILogger<MultiKbContext>` and returns a valid
+JSON payload of the shape `{ kb_id, status: "error", error: "<type>: <message>" }`.
+Hosts that already handle the existing status values (`indexing`,
+`queued`, `failed`, `ready`) need no change to keep working; new
+consumers can branch on `"error"` for diagnostic surfacing.
+
+### Already-correct behavior worth noting
+
+Investigation into the v2.3.1 user impact initially raised concern about
+queue dispatcher head-of-line blocking. Re-reading `ExecQueueRunner` —
+its catch at the per-entry boundary already records `LastError` on the
+failing entry and the loop's `WHERE LastError IS null` filter advances
+to the next entry. No change needed; the impression of head-of-line
+blocking was an artifact of the orchestrator never starting (Whisper
+native DLL load failure happened during process init, before any entry
+was picked up).
+
+---
+
 ## v2.3.1 (2026-04-27)
 
 ### Changed
