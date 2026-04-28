@@ -1,5 +1,113 @@
 # Release Notes
 
+## v2.4.2 (2026-04-28)
+
+### Fixed
+
+- **Cached read store opened with `SqliteOpenMode.ReadOnly` broke under
+  WAL mode.** `MultiKbContext.GetKb` caches a logically-read-only
+  `SqliteVectorStore` per knowledge base for the MCP serve path
+  (`get_index_info`, `search_documents`, `list_knowledge_bases`, …).
+  The store was opened with `Mode = SqliteOpenMode.ReadOnly`, which
+  maps to `O_RDONLY` at the OS level. WAL mode, however, requires
+  every connection — readers included — to register itself in the
+  `-shm` shared-memory file, which is a filesystem write. With an
+  `O_RDONLY` file handle that registration fails the moment any read
+  query touches a WAL-mode database, surfacing as
+  `SqliteException: SQLite Error 8: 'attempt to write a readonly
+  database'` (the message is misleading — the rejected write is
+  SQLite's own `-shm` coordination, not a query). The cached store
+  stayed broken until the serve process restarted, so every
+  subsequent `get_index_info` poll on that KB returned the same
+  error. v2.4.2 opens read-only stores with `SqliteOpenMode.ReadWrite`
+  instead so the OS handle has write permission for `-shm`
+  registration, while the existing `if (!readOnly) InitializeSchema()`
+  guard keeps the read path from issuing any schema mutation.
+
+- **Orchestrator spawn dropped its arguments when launched via `dotnet
+  tool` / `dotnet dnx`.** `start_reindex` writes the entry to
+  `.deferred-queue.json` and then calls `TrySpawnOrchestrator`, which
+  used `Environment.ProcessPath` plus the literal `"exec-queue
+  --queue-file ..."` arguments. When the server runs through `dotnet
+  dnx FieldCure.Mcp.Rag@2.* --yes serve` (the default integration for
+  `dotnet tool` / MCP host installs), `Environment.ProcessPath`
+  resolves to `dotnet.exe`, not the tool dll, so the spawned command
+  was `dotnet.exe exec-queue --queue-file ...` — which fails
+  immediately because `dotnet`'s CLI has no `exec-queue` subcommand.
+  Process.Start did not throw (the failed child exited cleanly), the
+  warning catch block stayed silent, and the queue file accumulated
+  entries with nothing to drain them. Symptom: clicking **변경 확인**
+  or any reindex action looked like it queued the request, but
+  `is_indexing` never flipped and the lock file never appeared.
+  v2.4.2 detects when the host is `dotnet`/`dotnet.exe` and prepends
+  the dll path resolved from `typeof(StartReindexTool).Assembly.Location`
+  before the `exec-queue` arguments, so the orchestrator gets the
+  same launch shape as the manual `dotnet <dll> exec-queue ...`
+  invocation that was always working.
+
+- **Brand-new KB tool failures returned unparseable plain text.** When a
+  tool threw on a freshly-created knowledge base — typically the very
+  first `check_changes` or `get_index_info` call against a KB with only
+  `config.json` and no `rag.db` yet — the MCP framework's default error
+  path wrapped the exception in a plain-text reply
+  (`"An error occurred invoking 'check_changes'."`). Programmatic
+  clients (e.g., `AssistStudio.KbMcpClient`) tried to `JsonDocument.Parse`
+  that text and failed with `JsonReaderException: 'A' is an invalid
+  start of a value`. v2.3.1 fixed the pattern in `get_index_info` only;
+  v2.4.2 extends the same structured-error wrapper to the four tools
+  that still bubbled exceptions:
+  - `check_changes`
+  - `cancel_reindex`
+  - `get_document_chunk`
+  - `list_knowledge_bases`
+
+### API contract — structured error envelope
+
+Failed tool invocations now return a JSON envelope:
+
+```json
+{
+  "kb_id": "…",
+  "status": "error",
+  "error": "FileNotFoundException: Database not found for knowledge base: …"
+}
+```
+
+- **LLM-based MCP hosts** (Claude Desktop, Anthropic CLI, etc.) need
+  no changes. The JSON renders naturally as tool output and the model
+  sees a more specific failure reason than the previous plain-text
+  reply.
+- **Programmatic hosts** that deserialize tool responses should check
+  `status == "error"` before accessing data fields. AssistStudio
+  v0.18+ ships this guard in `KbMcpClient.GetIndexInfoAsync` /
+  `CheckChangesAsync`; other consumers parsing these tools directly
+  should apply the same pattern.
+
+### Why this surfaced now
+
+`get_index_info`'s wrapper has been in place since v2.3.1, but the
+other four tools went untouched because every previous test case
+exercised KBs that already had a `rag.db` from at least one successful
+indexing run. The first reproduction came from creating a KB and
+hitting **변경 확인** (check changes) before any indexing had ever
+written `rag.db` — a common path for new installs.
+
+### Audit completed alongside the fix
+
+A full grep of `Console.WriteLine` / `Console.Out` / `Console.Write`
+across `src/` confirmed the MCP stdio transport stays clean: the
+`[Audio]` startup banner is on `Console.Error`, ASP.NET logging is
+routed to stderr through `LogToStandardErrorThreshold = Trace`, and
+the only `Console.Out` write outside `serve` mode is the JSON output
+of the `prune-orphans` CLI command.
+
+### Migration
+
+- `dotnet tool update fieldcure-mcp-rag` (or the equivalent dnx
+  refresh through your MCP host) picks up the patch automatically.
+- No schema change. No data migration. No breaking change for
+  consumers that did not parse error responses.
+
 ## v2.4.1 (2026-04-28)
 
 ### Fixed

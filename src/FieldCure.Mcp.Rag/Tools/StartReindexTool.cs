@@ -215,16 +215,36 @@ public static class StartReindexTool
             return;
         }
 
+        // When the server is launched as a dotnet tool / via `dotnet dnx ...`,
+        // Environment.ProcessPath resolves to dotnet.exe and the actual command
+        // is `dotnet.exe <dll> serve ...`. Spawning `dotnet.exe exec-queue ...`
+        // would invoke dotnet's own CLI which has no such subcommand and the
+        // child fails immediately, leaving the queue stalled. Detect that case
+        // and reconstruct the launch with the dll path prepended.
+        var psi = new ProcessStartInfo
+        {
+            FileName = exePath,
+            CreateNoWindow = true,
+            UseShellExecute = false,
+        };
+
+        var hostName = Path.GetFileNameWithoutExtension(exePath);
+        if (string.Equals(hostName, "dotnet", StringComparison.OrdinalIgnoreCase))
+        {
+            var dllPath = typeof(StartReindexTool).Assembly.Location;
+            psi.ArgumentList.Add(dllPath);
+        }
+        psi.ArgumentList.Add("exec-queue");
+        psi.ArgumentList.Add("--queue-file");
+        psi.ArgumentList.Add(queueFilePath);
+
         try
         {
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = exePath,
-                Arguments = $"exec-queue --queue-file \"{queueFilePath}\"",
-                CreateNoWindow = true,
-                UseShellExecute = false,
-            });
-            logger.LogInformation("Spawned orchestrator: exec-queue --queue-file \"{Path}\"", queueFilePath);
+            Process.Start(psi);
+            logger.LogInformation(
+                "Spawned orchestrator: {Host} {Args}",
+                exePath,
+                string.Join(' ', psi.ArgumentList));
         }
         catch (Exception ex)
         {

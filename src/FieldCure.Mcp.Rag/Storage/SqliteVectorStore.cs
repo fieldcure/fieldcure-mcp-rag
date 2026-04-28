@@ -38,10 +38,19 @@ public sealed class SqliteVectorStore : IDisposable
                 Directory.CreateDirectory(dir);
         }
 
+        // SQLite WAL mode requires OS write permission even for read-only
+        // access because the -shm (shared memory index) file must be updated
+        // to track which pages are current. SqliteOpenMode.ReadOnly opens
+        // the file with O_RDONLY, blocking these required SHM writes and
+        // producing "attempt to write a readonly database" errors.
+        //
+        // Logical read-only intent is enforced by guarding InitializeSchema()
+        // with !readOnly and only invoking read methods on the store. The OS
+        // permission and logical intent are intentionally decoupled.
         _connectionString = new SqliteConnectionStringBuilder
         {
             DataSource = dbPath,
-            Mode = readOnly ? SqliteOpenMode.ReadOnly : SqliteOpenMode.ReadWriteCreate,
+            Mode = readOnly ? SqliteOpenMode.ReadWrite : SqliteOpenMode.ReadWriteCreate,
         }.ToString();
 
         if (!readOnly)

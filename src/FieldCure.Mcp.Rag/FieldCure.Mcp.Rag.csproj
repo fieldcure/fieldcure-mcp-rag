@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>2.4.1</Version>
+    <Version>2.4.2</Version>
     <PackageId>FieldCure.Mcp.Rag</PackageId>
 
     <Authors>Jong Hyun Kim</Authors>
@@ -20,7 +20,7 @@
     <RepositoryUrl>https://github.com/fieldcure/fieldcure-mcp-rag</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>mcp;mcp-server;ai;dotnet;rag;embedding;vector-search;knowledge-base;bm25</PackageTags>
-    <PackageReleaseNotes>v2.4.1: Republished against FieldCure.DocumentParsers.Audio v0.3.1 to ship the WAVE_FORMAT_EXTENSIBLE fix — multi-channel WAV inputs (Windows capture pipelines, modern DAW exports, any WAV with more than two channels) now transcribe successfully where v2.4.0 threw ArgumentException at the resampler. PackAsTool freezes the Audio assembly into the tool nupkg, so v2.4.0's Audio="0.3.*" pin only takes effect at pack time on the maintainer side; end users must update to v2.4.1 to receive the fix. No code or behavior change in the Mcp.Rag layer itself.</PackageReleaseNotes>
+    <PackageReleaseNotes>v2.4.2: Two fixes for queues that appeared frozen on `dotnet tool` / `dotnet dnx` installs. (1) start_reindex's TrySpawnOrchestrator passed bare "exec-queue" args to Environment.ProcessPath, which is dotnet.exe under tool/dnx — that invocation has no such subcommand and silently failed, so deferred-queue.json accumulated entries with nothing to drain them. The spawn now prepends the tool dll path when the host is dotnet, matching the working manual `dotnet &lt;dll&gt; exec-queue ...` shape. (2) check_changes, cancel_reindex, get_document_chunk, and list_knowledge_bases now return a structured JSON error envelope (status="error", error="ExceptionType: message") instead of letting the MCP framework wrap exceptions in plain-text "An error occurred invoking '...'." replies that programmatic clients could not parse — same pattern v2.3.1 applied to get_index_info, now extended across the rest. LLM-based MCP hosts need no changes; programmatic hosts should check status=="error" before accessing data fields.</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>Logo.png</PackageIcon>
 

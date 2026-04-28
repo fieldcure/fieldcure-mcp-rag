@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 
 namespace FieldCure.Mcp.Rag.Tools;
@@ -17,26 +18,43 @@ public static class CancelReindexTool
         "use the cancel file mechanism for that.")]
     public static string CancelReindex(
         MultiKbContext context,
+        ILogger<MultiKbContext> logger,
         [Description("Knowledge base ID to cancel")]
         string kb_id)
     {
-        var queueFilePath = Path.Combine(context.BasePath, ExecQueueRunner.QueueFileName);
-        var queue = ExecQueueRunner.LoadQueue(queueFilePath);
+        try
+        {
+            var queueFilePath = Path.Combine(context.BasePath, ExecQueueRunner.QueueFileName);
+            var queue = ExecQueueRunner.LoadQueue(queueFilePath);
 
-        if (queue is null)
-            return JsonSerializer.Serialize(new { kb_id, cancelled = false, reason = "no_queue" }, McpJson.Indented);
+            if (queue is null)
+                return JsonSerializer.Serialize(new { kb_id, cancelled = false, reason = "no_queue" }, McpJson.Indented);
 
-        var entry = queue.Entries.FirstOrDefault(e => e.KbId == kb_id);
+            var entry = queue.Entries.FirstOrDefault(e => e.KbId == kb_id);
 
-        if (entry is null)
-            return JsonSerializer.Serialize(new { kb_id, cancelled = false, reason = "not_found" }, McpJson.Indented);
+            if (entry is null)
+                return JsonSerializer.Serialize(new { kb_id, cancelled = false, reason = "not_found" }, McpJson.Indented);
 
-        if (entry.StartedAt is not null && entry.LastError is null)
-            return JsonSerializer.Serialize(new { kb_id, cancelled = false, reason = "already_running" }, McpJson.Indented);
+            if (entry.StartedAt is not null && entry.LastError is null)
+                return JsonSerializer.Serialize(new { kb_id, cancelled = false, reason = "already_running" }, McpJson.Indented);
 
-        queue.Entries.RemoveAll(e => e.KbId == kb_id);
-        ExecQueueRunner.SaveQueue(queueFilePath, queue);
+            queue.Entries.RemoveAll(e => e.KbId == kb_id);
+            ExecQueueRunner.SaveQueue(queueFilePath, queue);
 
-        return JsonSerializer.Serialize(new { kb_id, cancelled = true }, McpJson.Indented);
+            return JsonSerializer.Serialize(new { kb_id, cancelled = true }, McpJson.Indented);
+        }
+        catch (Exception ex)
+        {
+            // Without this catch, the MCP framework wraps the exception in a
+            // plain-text "An error occurred invoking 'cancel_reindex'." reply
+            // that hosts cannot parse as JSON.
+            logger.LogError(ex, "cancel_reindex({KbId}) failed", kb_id);
+            return JsonSerializer.Serialize(new
+            {
+                kb_id,
+                status = "error",
+                error = $"{ex.GetType().Name}: {ex.Message}",
+            }, McpJson.Indented);
+        }
     }
 }

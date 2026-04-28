@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using FieldCure.Mcp.Rag.Contextualization;
 using FieldCure.Mcp.Rag.Indexing;
+using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 
 namespace FieldCure.Mcp.Rag.Tools;
@@ -31,9 +32,39 @@ public static class CheckChangesTool
     /// <returns>A JSON payload summarizing added, modified, deleted, and failed files.</returns>
     public static async Task<string> CheckChanges(
         MultiKbContext context,
+        ILogger<MultiKbContext> logger,
         [Description("Knowledge base ID")]
         string kb_id,
         CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await CheckChangesCore(context, kb_id, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Without this catch, the MCP framework wraps the exception in a
+            // plain-text "An error occurred invoking 'check_changes'." reply
+            // that hosts cannot parse as JSON. Return a structured error
+            // payload instead so callers see what failed.
+            logger.LogError(ex, "check_changes({KbId}) failed", kb_id);
+            return JsonSerializer.Serialize(new
+            {
+                kb_id,
+                status = "error",
+                error = $"{ex.GetType().Name}: {ex.Message}",
+            }, McpJson.Indented);
+        }
+    }
+
+    /// <summary>
+    /// Core implementation extracted so the public entry point can wrap it
+    /// with a structured-error catch.
+    /// </summary>
+    private static async Task<string> CheckChangesCore(
+        MultiKbContext context,
+        string kb_id,
+        CancellationToken cancellationToken)
     {
         var kb = context.GetKb(kb_id);
         var store = kb.Store;

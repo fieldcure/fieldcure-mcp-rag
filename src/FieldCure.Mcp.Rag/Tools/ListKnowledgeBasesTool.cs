@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 
 namespace FieldCure.Mcp.Rag.Tools;
@@ -23,26 +24,43 @@ public static class ListKnowledgeBasesTool
     /// </summary>
     /// <param name="context">The shared multi-knowledge-base context.</param>
     /// <returns>A JSON payload describing the available knowledge bases.</returns>
-    public static string ListKnowledgeBases(MultiKbContext context)
+    public static string ListKnowledgeBases(
+        MultiKbContext context,
+        ILogger<MultiKbContext> logger)
     {
-        var kbs = context.ListKbs();
-
-        var response = new
+        try
         {
-            knowledge_bases = kbs.Select(kb => new
-            {
-                id = kb.Id,
-                name = kb.Name,
-                total_files = kb.TotalFiles,
-                total_chunks = kb.TotalChunks,
-                is_indexing = kb.IsIndexing,
-                schema_version = kb.SchemaVersion,
-                is_schema_stale = kb.IsSchemaStale,
-            }),
-            current_schema_version = Storage.SqliteVectorStore.TargetUserVersion,
-            total = kbs.Count,
-        };
+            var kbs = context.ListKbs();
 
-        return JsonSerializer.Serialize(response, McpJson.Indented);
+            var response = new
+            {
+                knowledge_bases = kbs.Select(kb => new
+                {
+                    id = kb.Id,
+                    name = kb.Name,
+                    total_files = kb.TotalFiles,
+                    total_chunks = kb.TotalChunks,
+                    is_indexing = kb.IsIndexing,
+                    schema_version = kb.SchemaVersion,
+                    is_schema_stale = kb.IsSchemaStale,
+                }),
+                current_schema_version = Storage.SqliteVectorStore.TargetUserVersion,
+                total = kbs.Count,
+            };
+
+            return JsonSerializer.Serialize(response, McpJson.Indented);
+        }
+        catch (Exception ex)
+        {
+            // Without this catch, the MCP framework wraps the exception in a
+            // plain-text "An error occurred invoking 'list_knowledge_bases'." reply
+            // that hosts cannot parse as JSON.
+            logger.LogError(ex, "list_knowledge_bases failed");
+            return JsonSerializer.Serialize(new
+            {
+                status = "error",
+                error = $"{ex.GetType().Name}: {ex.Message}",
+            }, McpJson.Indented);
+        }
     }
 }
