@@ -1,70 +1,150 @@
-# fieldcure-mcp-rag
+# CLAUDE.md
 
-C# MCP RAG 서버. 문서 청킹·임베딩·SQLite FTS5 + 벡터 하이브리드 검색.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 프로젝트 구조
+## What this is
 
-- `src/FieldCure.Mcp.Rag/` — 메인 프로젝트 (net8.0, PackAsTool)
-- `tests/FieldCure.Mcp.Rag.Tests/` — 단위 테스트 (MSTest, 86개)
-- `scripts/publish-nuget.ps1` — NuGet 배포 (pack → sign → push)
-- `design/` — 내부 설계 문서 (gitignore 대상)
+`FieldCure.Mcp.Rag` is a C# **MCP server** distributed as a `dotnet tool` (PackAsTool). It indexes a folder of documents into a per-KB SQLite store with FTS5 + vector embeddings, then serves hybrid keyword + semantic search to MCP-compatible hosts (Claude Desktop, AssistStudio, etc.) over stdio.
 
-## 참조 프로젝트
+Two execution modes:
+- `fieldcure-mcp-rag exec --path <kb-path> [--force]` — headless indexing process
+- `fieldcure-mcp-rag serve --path <kb-path>` — search-only MCP server
 
-- `D:\Codes\fieldcure-mcp-filesystem` — 프로젝트 구조(slnx, csproj, Program.cs) 패턴 원본
-- `D:\Codes\fieldcure-assiststudio\src\DocumentParsers` — FieldCure.DocumentParsers 소스 (docx, hwpx만 지원)
+Indexing and serving are deliberately **separate processes**: indexing is heavy (AI contextualization, embedding generation, optional audio transcription) and an MCP host is not a sensible place to run it. The two modes share the same on-disk store.
 
-## 빌드 & 테스트
+## Build & test commands
 
 ```bash
+# Build
 dotnet build
+
+# Run all tests (185 tests, MSTest)
 dotnet test
+
+# Run a single test project
+dotnet test tests/FieldCure.Mcp.Rag.Tests
+
+# Run a single test by name
+dotnet test --filter "FullyQualifiedName~HybridSearcherTests.SearchAsync_ReturnsRrfRanked"
+
+# Pack the tool nupkg (artifacts/)
+dotnet pack -c Release -o artifacts
 ```
 
-## v0.1.0 완료 내역
+`net8.0` only (downstream `FieldCure.DocumentParsers` multi-targets net8.0/net10.0; the tool is pinned to net8.0 to match the broadest dotnet-tool installation footprint).
 
-- MCP stdio 서버 (3 tools: index_documents, search_documents, get_document_chunk)
-- OpenAI-compatible 임베딩 (Ollama/OpenAI/Azure 등)
-- SQLite 벡터 스토어 (WAL, SIMD 코사인 유사도)
-- 한글 최적화 청킹 (Regex 문장 경계, 소수점 보호, 괄호 미분할)
-- SHA256 증분 인덱싱 + orphan cleanup
-- DocumentParserFactory.SupportedExtensions 동적 포맷 감지
-- 지원 포맷: .docx, .hwpx, .txt, .md (.pdf/.xlsx/.pptx 미지원)
-- NuGet 배포 완료: FieldCure.Mcp.Rag 0.1.0
+## Repository layout
 
-## v0.2.0 완료 내역
+```
+fieldcure-mcp-rag/
+├── src/FieldCure.Mcp.Rag/
+│   ├── Program.cs                     ← exec / serve dispatch
+│   ├── ExecQueueRunner.cs             ← headless indexing loop
+│   ├── OrphanCleanupRunner.cs         ← removes chunks for files no longer present
+│   ├── MultiKbContext.cs              ← per-KB path + config resolution
+│   ├── McpJson.cs                     ← MCP envelope helpers
+│   ├── LazyAudioTranscriber.cs        ← deferred Whisper init (Windows-only)
+│   ├── LazyOcrEngine.cs               ← deferred Tesseract init (Windows-only)
+│   ├── Configuration/                 ← config.json schema, CredentialService (Windows PasswordVault)
+│   ├── Chunking/                      ← Korean-aware sentence splitter
+│   ├── Contextualization/             ← IChunkContextualizer + OpenAI / Anthropic / Null impls
+│   ├── Embedding/                     ← OpenAI-compatible embedding client
+│   ├── Storage/                       ← Sqlite schema, migrations, chunk store
+│   ├── Search/                        ← BM25 (FTS5), vector cosine, RRF, HybridSearcher
+│   ├── Indexing/                      ← IndexingEngine, file discovery, SHA-256 incremental
+│   └── Tools/                         ← MCP tool handlers (search_documents, get_document_chunk, get_index_info)
+├── tests/FieldCure.Mcp.Rag.Tests/     ← MSTest, 185 tests
+├── scripts/publish-nuget.ps1          ← pack → sign → push
+├── RELEASENOTES.md                    ← per-release changelog
+└── design/                            ← internal design docs (gitignored)
+```
 
-- FTS5 BM25 전문 검색 (SQLite FTS5 trigram, 한국어 공백 토큰화)
-- RRF (Reciprocal Rank Fusion, k=60) — BM25 + 벡터 결과 통합 랭킹
-- HybridSearcher — hybrid / bm25_only / vector_only 자동 선택, graceful degradation
-- 임베딩 서버 없이도 BM25 키워드 검색 가능 (NullEmbeddingProvider)
-- 데이터 경로 이전: `{contextFolder}/.rag/` → `%LOCALAPPDATA%\FieldCure\Mcp.Rag\{hash}\` (자동 마이그레이션)
-- search_documents에 search_mode 응답 필드 추가
-- 기본 유사도 threshold 0.5 → 0.3 하향
-- NuGet 배포: FieldCure.Mcp.Rag 0.2.0
+## Architecture
 
-## v0.3.0 완료 내역
+### KB layout on disk
 
-- Chunk Contextualization — AI 모델로 각 청크에 문맥 설명 + 정규화 키워드 부여
-- IChunkContextualizer 인터페이스 + NullChunkContextualizer (기본, v0.2.0 동작 유지)
-- OpenAiChunkContextualizer (/v1/chat/completions — OpenAI, Ollama, Groq 등)
-- AnthropicChunkContextualizer (/v1/messages — Claude Haiku, Sonnet, Opus)
-- 검색은 enriched 텍스트(context + keywords + original), 반환은 원본 텍스트
-- AI 호출 실패 시 원본으로 fallback (인덱싱 중단 안 함)
-- chunks 테이블 enriched 컬럼 추가 + v0.2.0 DB 자동 마이그레이션
-- FTS5/벡터 임베딩 대상: content → enriched
-- 환경변수: CONTEXTUALIZER_PROVIDER, CONTEXTUALIZER_BASE_URL, CONTEXTUALIZER_API_KEY, CONTEXTUALIZER_MODEL
-- TargetFramework net9.0 → net8.0 (DocumentParsers와 통일)
+A KB is a folder. Source files live wherever the user puts them (referenced by `sourcePaths` in `config.json`). The index lives at:
 
-## v0.11.0 완료 내역
+```
+%LOCALAPPDATA%\FieldCure\Mcp.Rag\<kb-id>\
+├── config.json    ← sourcePaths, contextualizer model, embedding model, apiKeyPreset
+└── rag.db         ← Sqlite: chunks (FTS5 + vectors), files (SHA-256), KV state
+```
 
-- exec/serve 이중 모드 분리 (Runner 패턴)
-  - `exec --path <kb-path> [--force]` — 헤드리스 인덱싱 프로세스
-  - `serve --path <kb-path>` — 검색 전용 MCP 서버 (stdio)
-- config.json — KB별 설정 (sourcePaths, contextualizer/embedding 모델, apiKeyPreset)
-- CredentialService — Windows PasswordVault에서 API 키 조회 (AssistStudio 공유)
-- IndexingEngine — IndexDocumentsTool에서 추출, cancel 파일 graceful 종료
-- index_documents MCP 도구 제거 (인덱싱은 exec 책임)
-- 환경변수 설정 방식 폐기 → config.json + PasswordVault
-- DB 파일: rag_index.db → rag.db
-- 데이터 경로: {hash} 기반 → {kb-id} 기반 (앱이 폴더 생성)
+`<kb-id>` is generated by the consuming app (AssistStudio creates these). The Mcp.Rag tool itself never creates KBs — `exec --path` and `serve --path` both expect an existing KB folder.
+
+### Indexing pipeline (exec mode)
+
+1. **File discovery.** Walk `sourcePaths` from `config.json`. Filter to extensions registered with `DocumentParserFactory.SupportedExtensions`. Skip files whose SHA-256 matches the stored hash (incremental).
+2. **Parse.** `DocumentParserFactory.GetParser(ext).ExtractText(bytes)` → markdown. Audio files transcribe via Whisper.net (Windows-only). On non-Windows, audio extensions silently return empty text.
+3. **Chunk.** Korean-aware sentence splitter with safeguards for decimal points and parenthesized expressions.
+4. **Contextualize.** Each chunk goes through `IChunkContextualizer.EnrichAsync` — AI-generated summary + normalized keywords prepended to the chunk text. `NullChunkContextualizer` is the no-op default; `OpenAi` / `Anthropic` impls hit `/v1/chat/completions` and `/v1/messages` respectively. Failures fall back to the original chunk so indexing never blocks on a transient AI outage.
+5. **Embed.** OpenAI-compatible client (works against OpenAI, Ollama, Azure, Groq, etc.) embeds the **enriched** text. The original text is what gets returned to the MCP caller; the enriched text is what gets indexed.
+6. **Store.** `chunks` table holds `enriched`, `original`, `embedding` (BLOB, F32 vector). FTS5 virtual table indexes `enriched`. Per-file SHA-256 in the `files` table for incremental.
+7. **Orphan cleanup.** Chunks whose source file is no longer on disk get deleted at end-of-run.
+
+`exec` writes a `cancel` sentinel file when interrupted; the indexing loop checks for it between files for graceful exit.
+
+### Search pipeline (serve mode)
+
+`HybridSearcher` runs BM25 (FTS5) and vector cosine searches in parallel against the enriched text, then merges via **Reciprocal Rank Fusion** (RRF, k=60). Mode auto-selects based on capability:
+
+- `hybrid` — both providers available
+- `bm25_only` — embedding provider returns `NullEmbeddingProvider` (no embedding API key configured) or fails
+- `vector_only` — FTS5 query returns nothing (rare)
+
+Default similarity threshold is 0.3 (lowered from 0.5 in v0.2 because RRF rescues low-cosine-but-high-BM25 results). The MCP `search_documents` response carries a `search_mode` field so callers can surface degraded modes.
+
+### MCP tool surface
+
+Three tools (the historical `index_documents` was removed when exec/serve were split):
+
+- `search_documents` — hybrid search, returns chunks with metadata
+- `get_document_chunk` — fetch one chunk by id
+- `get_index_info` — KB statistics. Wrapped in a structured-error catch so a failure (e.g. `SqliteException` on a fresh, never-indexed KB) returns valid JSON `{status:"error", error:"..."}` instead of an MCP plain-text error envelope that some hosts cannot parse.
+
+## Audio integration
+
+Audio extensions (`.mp3 .wav .m4a .ogg .flac .webm`) are registered by `FieldCure.DocumentParsers.Audio` and transcribed via Whisper.net. Windows-only — non-Windows builds compile without `LazyAudioTranscriber.cs` / `LazyOcrEngine.cs` (csproj `<Compile Remove>` on `!Windows`). The model size is decided once per indexing run via `WhisperEnvironment.RecommendModelSize()` (default `QualityBias.Accuracy`) so a single corpus has a consistent model footprint.
+
+**Audio v0.3 transition (in flight, target Mcp.Rag v2.4.0):**
+- Audio v0.3.0 moved CUDA / Vulkan native binaries from build-time bundling to runtime download from [`fieldcure-whisper-runtimes`](https://github.com/fieldcure/fieldcure-whisper-runtimes) on first GPU use.
+- Mcp.Rag v2.3.x re-declares `Whisper.net.Runtime` (CPU only) directly in its csproj because `PackAsTool` strips `runtimes/<rid>/native/` from indirect dependencies. With Audio v0.3+, that direct declaration remains the only Whisper-runtime PackageReference Mcp.Rag needs — GPU runtimes are no longer in the dependency graph at all.
+- The PoC branch `poc/mcprag-rid-split` explored RID-splitting to fit GPU runtimes under nuget.org's 250 MB cap. Audio v0.3 obsoletes that PoC entirely.
+
+## Code conventions
+
+- **XML doc comments are mandatory on every member** — `public`, `internal`, **and `private`** alike. At minimum a `/// <summary>` tag; add `<param>`, `<returns>`, `<exception>`, `<remarks>` where they carry information beyond the signature. The codebase is consistently documented at this level (see `LazyAudioTranscriber`, `HybridSearcher`, `IndexingEngine` for examples) — agent-authored code that omits docs on private methods will fail review.
+- **English only** in code, comments, and committed docs.
+- **No emojis** in source, comments, or markdown unless a fixture explicitly requires them.
+- **C# 12** — collection expressions, primary constructors, target-typed `new` are fine.
+- **Nullable reference types enabled.** Argument-null checks via `ArgumentNullException.ThrowIfNull(...)`.
+- **Internal-by-default.** Public surface is the MCP tool contract (in `Tools/`) and a small set of types intentionally exposed for `FieldCure.Mcp.Rag.Tests` via `InternalsVisibleTo`. Don't widen visibility for tests — extend `InternalsVisibleTo` instead.
+- **Console output goes to stderr** (`Console.Error.WriteLine`). stdout is reserved for the MCP wire protocol; writing to it corrupts the host's parser.
+
+## Testing
+
+MSTest. 185 tests, all non-integration by default. Test data under `tests/FieldCure.Mcp.Rag.Tests/TestData/` copied via `PreserveNewest`. Common test conventions:
+
+- Per-feature subfolder mirroring the source layout (`Chunking/`, `Search/`, `Indexing/`, etc.)
+- `Integration/` subfolder for cross-component tests (still gated only by being slow, not external resources)
+- Whisper-dependent tests are not included in this project — they live downstream in `FieldCure.DocumentParsers.Audio.Tests` and are opt-in there
+- Embedding and contextualization tests use `NullEmbeddingProvider` / `NullChunkContextualizer` plus mocks; no real API calls
+
+## Release process
+
+`scripts/publish-nuget.ps1` — pack → sign (GlobalSign EV USB dongle, `CN=Fieldcure Co., Ltd.`) → push to nuget.org. Accepts `-SkipSign`, `-SkipPush`, `-NuGetApiKey` (else `$env:NUGET_API_KEY`).
+
+**Branch / tag convention:**
+- Release work happens on `release/vX.Y.Z` branches off `main`.
+- Tag is the bare `vX.Y.Z` (this is a single-package repo, unlike `fieldcure-document-parsers` which has per-package tag prefixes).
+- Standard sequence: finish work on `release/vX.Y.Z` → bump `<Version>` + add `RELEASENOTES.md` section + update csproj `<PackageReleaseNotes>` summary → "Release vX.Y.Z" anchor commit → tag `vX.Y.Z` → publish → merge to main → `git push origin main vX.Y.Z`. Merge **after** publish so main only reflects shipped state.
+
+`RELEASENOTES.md` is the human-readable changelog (newest first, sections: `### Fixed` / `### Changed` / `### Added` / `### Migration`). The csproj `<PackageReleaseNotes>` is a one-paragraph summary intended for nuget.org.
+
+## Related repositories
+
+- [`fieldcure/fieldcure-document-parsers`](https://github.com/fieldcure/fieldcure-document-parsers) — `FieldCure.DocumentParsers[.Imaging|.Ocr|.Audio]`, the parser stack this server delegates to.
+- [`fieldcure/fieldcure-whisper-runtimes`](https://github.com/fieldcure/fieldcure-whisper-runtimes) — Whisper native runtime binaries; pulled transitively via Audio v0.3+.
+- [`fieldcure/fieldcure-assiststudio`](https://github.com/fieldcure/fieldcure-assiststudio) — WinUI 3 chat application; primary downstream consumer (creates KBs, invokes `exec` and `serve`).
+- [`fieldcure/fieldcure-mcp-filesystem`](https://github.com/fieldcure/fieldcure-mcp-filesystem) — sister MCP tool for filesystem access; the project structure (slnx, csproj, `Program.cs`) of this repo was originally cloned from there.
