@@ -1,5 +1,69 @@
 # Release Notes
 
+## v2.4.0 (2026-04-28)
+
+### Changed
+
+- **Adopted `FieldCure.DocumentParsers.Audio` v0.3.** The Whisper GPU runtimes
+  (CUDA, Vulkan) are no longer in this tool's dependency graph at all.
+  `DocumentParsers.Audio` v0.3 dropped its `Whisper.net.Runtime.Cuda` and
+  `Whisper.net.Runtime.Vulkan` `PackageReference`s and instead downloads those
+  binaries on first GPU use from
+  [`fieldcure-whisper-runtimes`](https://github.com/fieldcure/fieldcure-whisper-runtimes)
+  (manifest URL pinned in
+  `GitHubReleasesWhisperRuntimeProvisioner.DefaultManifestUrl`,
+  cache at `%LOCALAPPDATA%\FieldCure\WhisperRuntimes\`). The
+  `Mcp.Rag.csproj` `Audio` package reference moves from `Version="0.*"` to
+  `Version="0.3.*"` to pin the new contract.
+
+- **CPU runtime stays bundled.** `Whisper.net.Runtime` (CPU) remains a direct
+  `PackageReference` in `Mcp.Rag.csproj`. Reason is unchanged from v2.3.2 —
+  `PackAsTool` strips `runtimes/<rid>/native/` from indirect dependencies, so
+  the indirect path through `DocumentParsers.Audio` does not deliver the
+  native binaries to the published tool. The 250 MB nuget.org cap that drove
+  the earlier CPU-only trade-off is no longer a constraint: only the CPU
+  runtime ever lands inside this nupkg.
+
+### Why
+
+Two effects compound:
+
+1. **GPU acceleration becomes available for end users** automatically on
+   Windows hosts whose driver matches the manifest's `minDriverVersion` gate
+   (R525+ for CUDA 12.x; Vulkan has no driver-version policy). v2.3.x users
+   were locked to CPU regardless of GPU presence because the GPU runtimes
+   were excluded to fit under the package size cap.
+2. **The tool nupkg gets a noticeable size reduction** because the indirect
+   `Whisper.net.Runtime.Cuda.Windows` (~73 MB) and `Whisper.net.Runtime.Vulkan`
+   (~47 MB) bytes are gone from the dependency graph entirely, even before
+   PackAsTool's stripping kicks in.
+
+### Migration
+
+- **No code changes required for end users.** The `LazyAudioTranscriber`
+  wrapper continues to use `WhisperEnvironment.RecommendModelSize()` exactly
+  as before; v0.3's deprecated surface (`Probe()`, `CudaAvailable`) is not
+  on Mcp.Rag's hot path.
+- **First GPU transcription per host** triggers a one-time download:
+  - `cuda` (win-x64) — ~75 MB
+  - `vulkan` (win-x64) — ~49 MB
+
+  SHA-256 hashes are verified at download time. Subsequent transcriptions
+  reuse the cache. CPU transcription remains fully offline.
+- **Air-gapped deployments** — set `FIELDCURE_WHISPER_RUNTIME_DIR` to a
+  pre-staged directory containing `manifest.json` plus the
+  `runtimes/<variant>/<rid>/<file>` tree. The Audio v0.3 provisioner
+  performs zero network I/O when this variable is set. Layout reference is
+  in the
+  [`fieldcure-whisper-runtimes`](https://github.com/fieldcure/fieldcure-whisper-runtimes)
+  README.
+- **PoC archive.** The `poc/mcprag-rid-split` branch (RID-split investigation
+  to fit GPU runtimes under the 250 MB cap) is obsoleted by Audio v0.3. The
+  branch is left in place for decision-history purposes; no further work is
+  planned on it.
+
+---
+
 ## v2.3.2 (2026-04-27)
 
 ### Fixed

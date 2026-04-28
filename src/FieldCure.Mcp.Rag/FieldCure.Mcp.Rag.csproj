@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>2.3.2</Version>
+    <Version>2.4.0</Version>
     <PackageId>FieldCure.Mcp.Rag</PackageId>
 
     <Authors>Jong Hyun Kim</Authors>
@@ -20,7 +20,7 @@
     <RepositoryUrl>https://github.com/fieldcure/fieldcure-mcp-rag</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>mcp;mcp-server;ai;dotnet;rag;embedding;vector-search;knowledge-base;bm25</PackageTags>
-    <PackageReleaseNotes>v2.3.2: Hotfix for missing Whisper native runtime in v2.3.1 — re-declare Whisper.net.Runtime PackageReference directly in Mcp.Rag because PackAsTool strips runtimes/&lt;rid&gt;/native/ files from indirect dependencies, leaving v2.3.1 unable to load whisper.dll. CPU-only runtime: CUDA/Vulkan packages omitted to keep the tool nupkg under nuget.org's 250 MB limit; Whisper transcription falls back to CPU. Also wrap get_index_info handler in a structured-error catch so failures (e.g. SqliteException on a fresh KB) return valid JSON ({status:"error",error:"..."}) instead of an MCP plain-text wrap that hosts cannot parse.</PackageReleaseNotes>
+    <PackageReleaseNotes>v2.4.0: Adopt FieldCure.DocumentParsers.Audio v0.3 — Whisper GPU runtimes (CUDA, Vulkan) are no longer in the dependency graph at all; they are downloaded on first GPU use from https://github.com/fieldcure/fieldcure-whisper-runtimes and cached under %LOCALAPPDATA%\FieldCure\WhisperRuntimes\. The CPU runtime stays bundled (PackAsTool still strips runtimes/&lt;rid&gt;/native/ from indirect dependencies, so Whisper.net.Runtime remains a direct PackageReference). End-user effect: existing CPU transcription works unchanged with no first-run network requirement; CUDA / Vulkan acceleration becomes available automatically on hosts whose driver matches the manifest's minDriverVersion gate (R525+ for CUDA 12.x). For air-gapped deployments, set FIELDCURE_WHISPER_RUNTIME_DIR to a pre-staged directory and the provisioner skips all network I/O.</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>Logo.png</PackageIcon>
 
@@ -54,22 +54,22 @@
        silently return empty text from DocumentParserFactory.GetParser. -->
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
     <PackageReference Include="FieldCure.DocumentParsers.Ocr" Version="1.*" />
-    <PackageReference Include="FieldCure.DocumentParsers.Audio" Version="0.*" />
+    <PackageReference Include="FieldCure.DocumentParsers.Audio" Version="0.3.*" />
 
-    <!-- Whisper.net native runtime does not flow transitively into the
-         packaged dotnet-tool output (PackAsTool strips runtimes/<rid>/native/
-         from indirect dependencies), so DocumentParsers.Audio's reference
-         must be re-declared here. Without it the published tool throws
-         "Native Library not found in default paths" on the first audio
-         indexing call.
+    <!-- Whisper.net CPU native runtime does not flow transitively into the
+         packaged dotnet-tool output: PackAsTool strips runtimes/<rid>/native/
+         from indirect dependencies, so without a direct PackageReference here
+         the published tool would throw "Native Library not found in default
+         paths" on the first audio indexing call.
 
-         CPU runtime only. The matching .Cuda (~73 MB Win + ~80 MB Linux)
-         and .Vulkan (~47 MB Win + ~47 MB Linux) packages would push the
-         tool nupkg past nuget.org's 250 MB limit (observed 413 on first
-         attempt with all three included). Whisper still runs on CPU
-         transcription paths; GPU acceleration via CUDA/Vulkan is a
-         deliberate trade-off deferred until we either RID-split the tool
-         or move runtime selection to a separate optional install. -->
+         As of DocumentParsers.Audio v0.3 this is the *only* reason the
+         reference is restated. The GPU runtimes (Whisper.net.Runtime.Cuda,
+         Whisper.net.Runtime.Vulkan) are no longer in the dependency graph at
+         all — Audio v0.3 dropped them and instead downloads them on first GPU
+         use from https://github.com/fieldcure/fieldcure-whisper-runtimes
+         (cached under %LOCALAPPDATA%\FieldCure\WhisperRuntimes\). The 250 MB
+         nuget.org cap that drove the earlier CPU-only trade-off is no longer
+         a constraint here: only the CPU runtime ever lands inside this nupkg. -->
     <PackageReference Include="Whisper.net.Runtime" Version="1.9.0" />
   </ItemGroup>
 

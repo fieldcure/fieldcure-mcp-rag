@@ -40,10 +40,10 @@ if (OperatingSystem.IsWindows())
     // Emit a one-shot diagnostic snapshot to stderr so users can self-diagnose
     // recommendation outcomes ("why am I getting Tiny instead of Medium?").
     // stdout is reserved for the MCP stdio transport.
-    var probe = WhisperEnvironment.Probe();
+    var probe = WhisperEnvironment.Detect();
     var recommended = WhisperEnvironment.RecommendModelSize();
     Console.Error.WriteLine(
-        $"[Audio] CUDA={probe.CudaAvailable} Vulkan={probe.VulkanAvailable} " +
+        $"[Audio] CUDA={probe.CudaDriverAvailable} Vulkan={probe.VulkanDriverAvailable} " +
         $"RAM={probe.SystemRamBytes / (1024L * 1024 * 1024)}GB " +
         $"Cores={probe.LogicalCores} → recommended={recommended}");
 }
