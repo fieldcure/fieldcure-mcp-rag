@@ -1,5 +1,43 @@
 # Release Notes
 
+## v2.4.1 (2026-04-28)
+
+### Fixed
+
+- **Multi-channel WAV transcription.** v2.4.0 shipped with
+  `FieldCure.DocumentParsers.Audio` v0.3.0 frozen into the tool nupkg.
+  v0.3.0's `AudioConverter` rejected `WAVE_FORMAT_EXTENSIBLE` PCM input
+  (Windows capture pipelines, modern DAW exports, any WAV with more than
+  two channels) at `MediaFoundationResampler` construction with
+  `ArgumentException("Input must be PCM or IEEE float ...")`. v2.4.1
+  republishes against `Audio` v0.3.1, which detects the extensible format
+  tag and re-labels the `WaveFormat` as standard PCM / IEEE float without
+  byte conversion. Standard-PCM WAVs and MP3 / OGG / M4A / FLAC / WebM
+  inputs are unaffected.
+
+### Why this is a republish, not just a transitive bump
+
+`FieldCure.Mcp.Rag` ships as a `dotnet tool` (`PackAsTool=true`), which
+bundles the exact `FieldCure.DocumentParsers.Audio.dll` resolved at pack
+time inside its own .nupkg. v2.4.0's `Audio="0.3.*"` PackageReference pin
+only takes effect at maintainer-side pack time; existing v2.4.0
+installations carry the v0.3.0 `Audio.dll` with the EXTENSIBLE bug and
+remain exposed regardless of what version of `Audio` is currently on
+nuget.org. v2.4.1 is the republish that delivers the fix.
+
+### Migration
+
+- **Tool update required.** Run `dotnet tool update fieldcure-mcp-rag`
+  (or refresh the auto-updater your host uses).
+- **Re-index any KB that previously failed on a multi-channel WAV.** The
+  earlier failure was a hard error at extraction, so the affected files
+  appear in `index_timing.log` with `[FAILED:extract] ... — Input must be
+  PCM or IEEE float`. After upgrading they re-extract on the next run.
+- **No code or config changes** at the Mcp.Rag layer. `serve` / `exec` /
+  `exec-queue` / `prune-orphans` surfaces unchanged from v2.4.0.
+
+---
+
 ## v2.4.0 (2026-04-28)
 
 ### Changed

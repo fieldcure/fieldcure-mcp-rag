@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.fieldcure/rag",
   "description": "MCP RAG server with hybrid search, multi-KB support, and AI-powered chunk contextualization.",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "repository": {
     "url": "https://github.com/fieldcure/fieldcure-mcp-rag",
     "source": "github"
@@ -12,7 +12,7 @@
       "registryType": "nuget",
       "registryBaseUrl": "https://api.nuget.org/v3/index.json",
       "identifier": "FieldCure.Mcp.Rag",
-      "version": "2.4.0",
+      "version": "2.4.1",
       "runtimeHint": "dnx",
       "transport": {
         "type": "stdio"

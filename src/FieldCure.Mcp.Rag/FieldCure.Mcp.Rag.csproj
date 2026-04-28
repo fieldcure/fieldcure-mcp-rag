@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>2.4.0</Version>
+    <Version>2.4.1</Version>
     <PackageId>FieldCure.Mcp.Rag</PackageId>
 
     <Authors>Jong Hyun Kim</Authors>
@@ -20,7 +20,7 @@
     <RepositoryUrl>https://github.com/fieldcure/fieldcure-mcp-rag</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>mcp;mcp-server;ai;dotnet;rag;embedding;vector-search;knowledge-base;bm25</PackageTags>
-    <PackageReleaseNotes>v2.4.0: Adopt FieldCure.DocumentParsers.Audio v0.3 — Whisper GPU runtimes (CUDA, Vulkan) are no longer in the dependency graph at all; they are downloaded on first GPU use from https://github.com/fieldcure/fieldcure-whisper-runtimes and cached under %LOCALAPPDATA%\FieldCure\WhisperRuntimes\. The CPU runtime stays bundled (PackAsTool still strips runtimes/&lt;rid&gt;/native/ from indirect dependencies, so Whisper.net.Runtime remains a direct PackageReference). End-user effect: existing CPU transcription works unchanged with no first-run network requirement; CUDA / Vulkan acceleration becomes available automatically on hosts whose driver matches the manifest's minDriverVersion gate (R525+ for CUDA 12.x). For air-gapped deployments, set FIELDCURE_WHISPER_RUNTIME_DIR to a pre-staged directory and the provisioner skips all network I/O.</PackageReleaseNotes>
+    <PackageReleaseNotes>v2.4.1: Republished against FieldCure.DocumentParsers.Audio v0.3.1 to ship the WAVE_FORMAT_EXTENSIBLE fix — multi-channel WAV inputs (Windows capture pipelines, modern DAW exports, any WAV with more than two channels) now transcribe successfully where v2.4.0 threw ArgumentException at the resampler. PackAsTool freezes the Audio assembly into the tool nupkg, so v2.4.0's Audio="0.3.*" pin only takes effect at pack time on the maintainer side; end users must update to v2.4.1 to receive the fix. No code or behavior change in the Mcp.Rag layer itself.</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>Logo.png</PackageIcon>
 
