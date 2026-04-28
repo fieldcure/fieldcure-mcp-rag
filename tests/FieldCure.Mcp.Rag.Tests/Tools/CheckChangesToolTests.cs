@@ -7,6 +7,7 @@ using FieldCure.Mcp.Rag.Models;
 using FieldCure.Mcp.Rag.Storage;
 using FieldCure.Mcp.Rag.Tools;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace FieldCure.Mcp.Rag.Tests.Tools;
 
@@ -109,7 +110,7 @@ public class CheckChangesToolTests
         var (basePath, kbId) = await CreateCleanKbAsync();
 
         using var ctx = new MultiKbContext(basePath, StubEmbedding);
-        var json = await CheckChangesTool.CheckChanges(ctx, kbId);
+        var json = await CheckChangesTool.CheckChanges(ctx, NullLogger<MultiKbContext>.Instance, kbId);
 
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
@@ -192,7 +193,7 @@ public class CheckChangesToolTests
         Assert.AreEqual(0, SqliteVectorStore.ReadUserVersion(dbPath));
 
         using var ctx = new MultiKbContext(basePath, StubEmbedding);
-        var json = await CheckChangesTool.CheckChanges(ctx, kbId);
+        var json = await CheckChangesTool.CheckChanges(ctx, NullLogger<MultiKbContext>.Instance, kbId);
 
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
@@ -221,7 +222,7 @@ public class CheckChangesToolTests
         await File.WriteAllTextAsync(sourceFile, "Hello world — updated");
 
         using var ctx = new MultiKbContext(basePath, StubEmbedding);
-        var json = await CheckChangesTool.CheckChanges(ctx, kbId);
+        var json = await CheckChangesTool.CheckChanges(ctx, NullLogger<MultiKbContext>.Instance, kbId);
 
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
