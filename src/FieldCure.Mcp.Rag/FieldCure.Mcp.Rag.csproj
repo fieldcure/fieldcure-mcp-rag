@@ -82,4 +82,57 @@
     <Compile Remove="LazyAudioTranscriber.cs" />
   </ItemGroup>
 
+  <!--
+    PoC: mcprag-rid-split (branch poc/mcprag-rid-split).
+    Activated by /p:PoCVariant=alpha|beta|gamma|delta. Property unset = original v2.3.2 behavior.
+      alpha  <RuntimeIdentifier>win-x64</RuntimeIdentifier>   (singular)
+      beta   <RuntimeIdentifiers>win-x64</RuntimeIdentifiers> (plural)
+      gamma  ExcludeAssets="contentFiles;build" on Whisper.net.Runtime.* + manual win-x64 native include
+             (Whisper.net.Runtime.* dumps natives via contentFiles + build/ MSBuild props
+              into content/ and contentFiles/, *not* via runtime asset — so excluding "runtime"
+              would be a no-op. The user's original spec said "runtime"; corrected here based on
+              local pack inspection of variant alpha showing the bloat lives in content/ tree.)
+      delta  CLI-driven: dotnet pack -r win-x64 (no csproj-side RID set)
+    All variants re-add Whisper.net.Runtime.Cuda + .Vulkan to test whether GPU
+    runtimes fit under nuget.org's 250 MB cap once Linux/macOS bytes are gone.
+  -->
+  <PropertyGroup Condition="'$(PoCVariant)' != ''">
+    <Version>$(Version)-poc-$(PoCVariant)</Version>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(PoCVariant)' != '' AND $([MSBuild]::IsOSPlatform('Windows'))">
+    <PackageReference Include="Whisper.net.Runtime.Cuda" Version="1.9.0" />
+    <PackageReference Include="Whisper.net.Runtime.Vulkan" Version="1.9.0" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(PoCVariant)' == 'alpha'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(PoCVariant)' == 'beta'">
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(PoCVariant)' == 'gamma' AND $([MSBuild]::IsOSPlatform('Windows'))">
+    <!-- Suppress contentFiles+build asset flow so Whisper.net.Runtime.* doesn't
+         dump all-platform native libs into content/, contentFiles/, and the
+         publish output tools/ tree. Compile asset (Whisper.net.dll reference)
+         and runtime asset (transitive runtimes/<rid>/native/ resolution) are
+         still allowed. The PackAsTool publish step then sees no native files
+         from these packages, and we add them back manually below. -->
+    <PackageReference Update="Whisper.net.Runtime" ExcludeAssets="contentFiles;build" GeneratePathProperty="true" />
+    <PackageReference Update="Whisper.net.Runtime.Cuda" ExcludeAssets="contentFiles;build" GeneratePathProperty="true" />
+    <PackageReference Update="Whisper.net.Runtime.Vulkan" ExcludeAssets="contentFiles;build" GeneratePathProperty="true" />
+  </ItemGroup>
+
+  <Target Name="IncludeWhisperWinNativePoCGamma" BeforeTargets="GenerateNuspec" Condition="'$(PoCVariant)' == 'gamma'">
+    <ItemGroup>
+      <!-- Whisper.net.Runtime ships standard runtimes/<rid>/native/ layout. -->
+      <None Include="$(PkgWhisper_net_Runtime)\runtimes\win-x64\native\*.*" Pack="true" PackagePath="tools/$(TargetFramework)/any/runtimes/win-x64/native/" />
+      <!-- Cuda/Vulkan use non-standard runtimes/cuda/<rid>/ and runtimes/vulkan/<rid>/ pseudo-RID layout. -->
+      <None Include="$(PkgWhisper_net_Runtime_Cuda)\runtimes\cuda\win-x64\*.*" Pack="true" PackagePath="tools/$(TargetFramework)/any/runtimes/cuda/win-x64/" />
+      <None Include="$(PkgWhisper_net_Runtime_Vulkan)\runtimes\vulkan\win-x64\*.*" Pack="true" PackagePath="tools/$(TargetFramework)/any/runtimes/vulkan/win-x64/" />
+    </ItemGroup>
+  </Target>
+
 </Project>
