@@ -1,5 +1,66 @@
 # Release Notes
 
+## v2.4.4 (2026-05-06)
+
+### Fixed
+
+- **First-launch RAG connect race against `prune-orphans` on clean
+  PCs.** The host (AssistStudio) previously spawned two `dnx`
+  invocations of `FieldCure.Mcp.Rag` back-to-back at startup —
+  `RagProcessManager.StartPruneOrphans()` for the orphan cleanup,
+  and `ConnectBuiltInAsync(rag)` for the MCP serve connection —
+  and on a cold cache the two contended for the same nuget
+  fetch lock. One side consistently dropped out after roughly
+  1.6 s with `server shut down unexpectedly`, and the user saw
+  RAG fail at first launch even though every subsequent attempt
+  succeeded. `RunServeAsync` now calls
+  `OrphanCleanupRunner.RunAsync` itself, right before
+  `app.RunAsync()`. There is one `dnx` invocation per serve
+  start, the race window is gone, and the host no longer needs
+  to schedule a separate prune step. `emitJson` is set to
+  `false` for this in-process call because stdout is owned by
+  the MCP wire protocol once the host is built; the prune
+  result is reported through the logger only. Prune failures
+  are caught and logged so a prune problem cannot prevent
+  serve from starting.
+
+### Changed
+
+- **`OrphanCleanupRunner.RunAsync` gains a 5 s mtime grace.**
+  A freshly created KB folder may briefly exist on disk
+  without `config.json` while the App writes it, and prune
+  must not delete that folder. Folders whose last-write time
+  falls inside the grace window are skipped on this pass; a
+  later prune (or the next serve startup) will clean them up
+  if they really are orphans. Tests pass `mtimeGrace =
+  TimeSpan.Zero` to opt out of the protection where they need
+  deterministic deletion.
+- **`OrphanCleanupRunner.RunAsync` gains an `emitJson`
+  parameter (default `true`).** The CLI `prune-orphans` mode
+  keeps its existing JSON-to-stdout contract; only the
+  serve-startup caller passes `false`. The CLI's JSON schema
+  is byte-compatible with v2.4.3 — no keys added, no keys
+  removed.
+
+### Tests
+
+- Nine new cases in `OrphanCleanupRunnerTests` covering live-KB
+  preservation, aged orphan deletion, the young-orphan grace,
+  the `grace = TimeSpan.Zero` escape hatch, non-GUID and
+  prefix/backup-protected folders, both `emitJson` contracts
+  (CLI writes to stdout, serve stays silent), and the
+  missing-base-path exit code.
+
+### Migration
+
+- Hosts that currently spawn `prune-orphans` separately (notably
+  AssistStudio's `RagProcessManager.StartPruneOrphans()`) can
+  remove that call once they upgrade to the v2.4.4 RAG tool.
+  Doing so removes the cold-fetch race entirely. Hosts that do
+  not remove the call still work — the prune step simply runs
+  twice on launch (no correctness impact, just a redundant
+  process spawn).
+
 ## v2.4.3 (2026-05-06)
 
 ### Fixed
