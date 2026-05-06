@@ -104,6 +104,26 @@ async Task<int> RunServeAsync(string[] args)
         .WithToolsFromAssembly();
 
     var app = builder.Build();
+
+    // Self-prune at startup so the host (e.g., AssistStudio) does not need to
+    // spawn a separate prune-orphans process before serve. emitJson is suppressed
+    // because stdout is owned by the MCP wire protocol once the host is built;
+    // any extra bytes corrupt the host's parser. Failures are logged and
+    // swallowed — a serve start must not be gated by prune.
+    try
+    {
+        await OrphanCleanupRunner.RunAsync(
+            basePath,
+            app.Services.GetRequiredService<ILoggerFactory>(),
+            emitJson: false);
+    }
+    catch (Exception ex)
+    {
+        app.Services.GetRequiredService<ILoggerFactory>()
+            .CreateLogger("ServeStartup")
+            .LogWarning(ex, "Startup prune-orphans failed; continuing with serve.");
+    }
+
     await app.RunAsync();
 
     return 0;
@@ -313,7 +333,7 @@ static int PrintUsage()
     Console.Error.WriteLine("FieldCure RAG — Document indexing and hybrid search engine");
     Console.Error.WriteLine();
     Console.Error.WriteLine("Usage:");
-    Console.Error.WriteLine("  fieldcure-mcp-rag serve         --base-path <path>                         Start multi-KB MCP search server (stdio)");
+    Console.Error.WriteLine("  fieldcure-mcp-rag serve         --base-path <path>                         Start multi-KB MCP search server (stdio); prunes orphan KB folders at startup");
     Console.Error.WriteLine("  fieldcure-mcp-rag exec          --path <kb-path> [--force] [-v]            Run headless indexing for a single KB");
     Console.Error.WriteLine("  fieldcure-mcp-rag exec-queue    --queue-file <path> [--sweep-all] [-v]     Process deferred queue sequentially");
     Console.Error.WriteLine("  fieldcure-mcp-rag prune-orphans --base-path <path>                         Delete orphan KB folders (no config.json)");
