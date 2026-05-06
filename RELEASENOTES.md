@@ -1,5 +1,63 @@
 # Release Notes
 
+## v2.4.3 (2026-05-06)
+
+### Fixed
+
+- **Stuck `start_reindex` after the orchestrator was killed mid-run.**
+  `start_reindex` consults a queue-file flag (`StartedAt` on the entry)
+  while `get_index_info` consults a SQLite row, and `IndexingEngine`'s
+  `finally` only clears the SQLite side. When the orchestrator child
+  process was killed before its own per-entry `try/finally` could run
+  — OS kill, OOM, segfault, the parent serve being terminated, the
+  user closing the host app while a long whisper transcription was
+  active — the queue mark survived on disk while the in-process
+  finalizer never ran. Every subsequent `start_reindex` then bounced
+  on `"already_running"` while `get_index_info` simultaneously reported
+  the KB as idle, and the user could see "ready" in the UI yet not
+  start anything until the queue file was hand-edited or the data
+  directory wiped. v2.4.3 introduces a stale-lock recovery sweep that
+  detects this state and re-queues the entry through the normal
+  failure-replace branch:
+  - A new `IsOrchestratorAlive(basePath)` helper reads
+    `orchestrator.lock`, validates the recorded PID is alive, and
+    keeps the existing PID-reuse / start-time defense.
+  - A new `RecoverStaleRunningEntries(queueFilePath, logger)` sweep
+    converts every `StartedAt`-set entry into the failed state with
+    `LastError = "orchestrator_died_or_killed"`.
+  - `ExecQueueRunner.RunAsync` calls the sweep unconditionally right
+    after acquiring its own orchestrator lock — any `StartedAt` it
+    inherits at that point is necessarily from a previous orchestrator
+    that did not finish cleanly.
+  - `StartReindexTool` and `CancelReindexTool` call the sweep
+    conditionally on entry, only when no live orchestrator owns the
+    lock, so users can recover from the chat surface without
+    restarting anything.
+  - `force=true` is left untouched: bypassing the lock guard while a
+    real orchestrator is running risks corrupting in-flight SQLite
+    writes, and the recovery path already handles every dead-
+    orchestrator case automatically.
+
+- **`IsLockStale` PID-reuse defense was timezone-broken.**
+  The function compared `process.StartTime.ToUniversalTime()` against
+  `DateTime.TryParse(lockInfo.StartedAt, ...)`, which on a Z-suffixed
+  ISO string returns `Kind = Local` (the value is converted into local
+  time despite the trailing `Z`). On any non-UTC host the subtraction
+  produced a difference equal to the local offset — for example
+  ~32400 seconds in KST — and the 5-second skew tolerance always
+  flagged a perfectly valid live lock as "stale." The new tests for
+  the recovery flow surfaced this latent bug. Parsing now uses
+  `AdjustToUniversal | AssumeUniversal`, keeping both sides in UTC.
+
+### Tests
+
+- Ten new cases covering the recovery primitives, `IsLockStale` TZ
+  behavior, and the `start_reindex` / `cancel_reindex` tool surface
+  end-to-end. Validated outside the test suite by killing a live
+  indexing orchestrator mid-whisper-transcription (~4.5 GB RAM in
+  use) and confirming the next `start_reindex` auto-recovered to
+  `status = "queued"` with no manual intervention.
+
 ## v2.4.2 (2026-04-28)
 
 ### Fixed
