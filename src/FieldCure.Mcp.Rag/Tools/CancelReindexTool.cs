@@ -25,6 +25,16 @@ public static class CancelReindexTool
         try
         {
             var queueFilePath = Path.Combine(context.BasePath, ExecQueueRunner.QueueFileName);
+
+            // Same stale-lock recovery as start_reindex: a crashed orchestrator
+            // could have left an entry marked as running. Without this sweep,
+            // cancel_reindex would refuse with "already_running" even though
+            // nothing is actually running.
+            if (!ExecQueueRunner.IsOrchestratorAlive(context.BasePath))
+            {
+                ExecQueueRunner.RecoverStaleRunningEntries(queueFilePath, logger);
+            }
+
             var queue = ExecQueueRunner.LoadQueue(queueFilePath);
 
             if (queue is null)

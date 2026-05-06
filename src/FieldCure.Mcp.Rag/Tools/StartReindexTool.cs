@@ -55,6 +55,17 @@ public static class StartReindexTool
         }
 
         var queueFilePath = Path.Combine(basePath, ExecQueueRunner.QueueFileName);
+
+        // Stale-lock guard: if no orchestrator currently owns the lock but the
+        // queue still has an entry marked as running (StartedAt set), that
+        // entry is from a crashed/killed previous orchestrator. Recover before
+        // we read the queue so the user's start_reindex doesn't bounce off an
+        // "already_running" reply that nothing is actually running.
+        if (!ExecQueueRunner.IsOrchestratorAlive(basePath))
+        {
+            ExecQueueRunner.RecoverStaleRunningEntries(queueFilePath, logger);
+        }
+
         var queue = ExecQueueRunner.LoadQueue(queueFilePath) ?? new DeferredQueue();
 
         var existingEntry = queue.Entries.FirstOrDefault(e => e.KbId == kb_id);

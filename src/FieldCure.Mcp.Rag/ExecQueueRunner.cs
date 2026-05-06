@@ -44,6 +44,13 @@ internal static class ExecQueueRunner
         if (!TryAcquireLock(lockFilePath, logger))
             return 0;
 
+        // We just claimed the orchestrator lock. Any pre-existing entry with
+        // StartedAt set is necessarily stale — only the previous orchestrator
+        // could have set it, and either it finished (and removed the entry)
+        // or it died mid-run. Sweep them now so a previous crash doesn't
+        // block fresh requests forever.
+        RecoverStaleRunningEntries(queueFilePath, logger);
+
         try
         {
             while (true)
@@ -182,7 +189,17 @@ internal static class ExecQueueRunner
             if (process.HasExited) return true;
 
             // PID reuse defense: compare started_at with actual process start time.
-            if (DateTime.TryParse(lockInfo.StartedAt, out var lockStarted))
+            // AdjustToUniversal + AssumeUniversal force the parsed value into UTC
+            // regardless of the trailing 'Z' (default DateTime.TryParse converts a
+            // Z-suffixed string to Local kind, which would make the diff against
+            // process.StartTime.ToUniversalTime() consistently fail by the local
+            // TZ offset in non-UTC zones — KST would always look "stale").
+            if (DateTime.TryParse(
+                    lockInfo.StartedAt,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AdjustToUniversal
+                        | System.Globalization.DateTimeStyles.AssumeUniversal,
+                    out var lockStarted))
             {
                 var diff = Math.Abs((process.StartTime.ToUniversalTime() - lockStarted).TotalSeconds);
                 if (diff > 5) return true;
@@ -224,6 +241,78 @@ internal static class ExecQueueRunner
         {
             logger.LogWarning(ex, "Failed to release orchestrator lock.");
         }
+    }
+
+    /// <summary>
+    /// Returns <c>true</c> when the orchestrator lock file points at a live process
+    /// whose start-time matches (PID-reuse defense). Returns <c>false</c> when the
+    /// lock file is missing, corrupt, or its PID is dead/reused — i.e., when no
+    /// orchestrator is currently running.
+    /// </summary>
+    /// <param name="basePath">RAG base directory containing <c>orchestrator.lock</c>.</param>
+    internal static bool IsOrchestratorAlive(string basePath)
+    {
+        var lockFilePath = Path.Combine(basePath, LockFileName);
+        if (!File.Exists(lockFilePath)) return false;
+
+        try
+        {
+            var json = File.ReadAllText(lockFilePath);
+            var lockInfo = JsonSerializer.Deserialize(json, DeferredQueueJsonContext.Default.OrchestratorLock);
+            if (lockInfo is null) return false;
+            return !IsLockStale(lockInfo);
+        }
+        catch
+        {
+            // Corrupt lock file — treat as no orchestrator
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Sweeps the queue and recovers entries whose <c>StartedAt</c> is set but
+    /// whose owning orchestrator can no longer be the source of that mark
+    /// (because no orchestrator currently holds the lock or the caller just
+    /// claimed the lock fresh). Marked entries are converted to a failed state
+    /// so the next <c>start_reindex</c> retries them through the normal
+    /// LastError-replace branch instead of being indefinitely blocked by an
+    /// "already_running" reply that nothing is actually running.
+    ///
+    /// This closes the crash-recovery hole where an orchestrator process was
+    /// killed (OS, OOM, segfault, parent serve termination) before its
+    /// per-entry try/finally could clear <c>StartedAt</c>. The queue file
+    /// state lived on disk while the in-memory finalizer never ran.
+    /// </summary>
+    /// <param name="queueFilePath">Absolute path to the deferred queue file.</param>
+    /// <param name="logger">Logger used for recovery diagnostics.</param>
+    /// <returns>Number of entries recovered. Zero is the common case.</returns>
+    internal static int RecoverStaleRunningEntries(string queueFilePath, ILogger logger)
+    {
+        var queue = LoadQueue(queueFilePath);
+        if (queue is null || queue.Entries.Count == 0) return 0;
+
+        var recovered = 0;
+        foreach (var entry in queue.Entries)
+        {
+            if (entry.StartedAt is null || entry.LastError is not null) continue;
+
+            logger.LogWarning(
+                "Recovering stale running entry for KB {KbId} (started_at={StartedAt}). " +
+                "Orchestrator was killed or crashed before clearing the queue mark.",
+                entry.KbId, entry.StartedAt);
+
+            entry.StartedAt = null;
+            entry.LastError = "orchestrator_died_or_killed";
+            recovered++;
+        }
+
+        if (recovered > 0)
+        {
+            SaveQueue(queueFilePath, queue);
+            logger.LogInformation("Recovered {Count} stale running entries.", recovered);
+        }
+
+        return recovered;
     }
 
     #endregion
