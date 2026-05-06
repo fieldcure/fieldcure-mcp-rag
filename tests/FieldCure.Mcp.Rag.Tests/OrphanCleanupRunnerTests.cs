@@ -212,9 +212,13 @@ public class OrphanCleanupRunnerTests
         var root = doc.RootElement;
         Assert.AreEqual(1, root.GetProperty("scanned").GetInt32());
         Assert.AreEqual(1, root.GetProperty("orphans_found").GetInt32());
-        Assert.AreEqual(0, root.GetProperty("skipped_young").GetInt32());
         Assert.AreEqual(1, root.GetProperty("cleaned").GetInt32());
         Assert.AreEqual(0, root.GetProperty("failed").GetArrayLength());
+        // skipped_young is intentionally absent — it is a diagnostic counter
+        // reported only via the logger to keep the JSON contract aligned with
+        // v2.4.3 (no schema additions for callers that don't need them).
+        Assert.IsFalse(root.TryGetProperty("skipped_young", out _),
+            "skipped_young must not appear in the CLI JSON output.");
     }
 
     /// <summary>

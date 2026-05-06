@@ -115,11 +115,14 @@ internal static class OrphanCleanupRunner
 
         if (emitJson)
         {
+            // Schema is intentionally a strict superset of v2.4.3's output —
+            // only the keys existing CLI consumers depend on. The mtime-grace
+            // skip counter is intentionally *not* exposed here; it is purely a
+            // diagnostic concern reported through the logger below.
             var result = new
             {
                 scanned,
                 orphans_found = orphansFound,
-                skipped_young = skippedYoung,
                 cleaned,
                 failed,
             };
