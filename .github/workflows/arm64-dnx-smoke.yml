@@ -26,7 +26,7 @@ on:
       ocr-version:
         description: 'OCR PackageReference Version to pin (NuGet syntax). Use [x.y.z-preview.n] for an exact prerelease, or 1.* for the latest stable.'
         required: false
-        default: '[1.2.0-preview.1]'
+        default: '[1.2.0-preview.2]'
 
 jobs:
   pack:
