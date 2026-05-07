@@ -46,6 +46,23 @@
     <None Include=".mcp/server.json" Pack="true" PackagePath=".mcp/" />
   </ItemGroup>
 
+  <!-- Sync check: .mcp/server.json's "version" fields must match csproj <Version>.
+       The JSON descriptor is metadata for the MCP Server Registry; if the two
+       drift, the registry listing reports the wrong version even though the
+       published nupkg itself is correct. Caught this on 2.5.0 (server.json had
+       stayed at 2.4.4) and added the check so the next pack fails early on a
+       missed update. Hits both top-level "version" and packages[].version
+       because we look for the literal token "$(Version)" — both fields use
+       the same csproj <Version> value by convention. -->
+  <Target Name="VerifyServerJsonVersion" BeforeTargets="GenerateNuspec">
+    <PropertyGroup>
+      <_ServerJsonContent>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\.mcp\server.json'))</_ServerJsonContent>
+      <_ExpectedVersionToken>"version": "$(Version)"</_ExpectedVersionToken>
+    </PropertyGroup>
+    <Error Condition="!$(_ServerJsonContent.Contains($(_ExpectedVersionToken)))"
+           Text=".mcp/server.json version is out of sync with csproj &lt;Version&gt;$(Version)&lt;/Version&gt;. Update both 'version' fields in .mcp/server.json to match before packing." />
+  </Target>
+
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol" Version="1.2.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.*" />
