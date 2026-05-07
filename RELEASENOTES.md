@@ -1,5 +1,71 @@
 # Release Notes
 
+## v2.5.0 (2026-05-07)
+
+### Added
+
+- **ARM64 dnx deployment.** Picks up
+  [`FieldCure.DocumentParsers.Ocr` 1.2.0](https://www.nuget.org/packages/FieldCure.DocumentParsers.Ocr/1.2.0),
+  which packs both x64 and ARM64 native trees into the tool nupkg
+  (`tools/<tfm>/any/x64/` + `tools/<tfm>/any/arm64-platform/x64/`) and
+  installs a runtime `LibraryLoader.CustomSearchPath` router. As a
+  result, this tool nupkg now installs and runs cleanly under `dnx`
+  on both `win-x64` and `win-arm64` from a single published package —
+  the host doesn't have to choose an arch-specific fork. Whisper.net
+  ARM64 native binaries were already shipping via
+  `Whisper.net.Runtime` 1.9's `runtimes/win-arm64/native/` layout, so
+  the audio path comes along for free.
+
+- **Audio 0.4 effective-model reporting in the transcript header.**
+  `FieldCure.DocumentParsers.Audio` 0.4 introduced an
+  `IModelSizeReporting` capability so wrapping transcribers like ours
+  (which ignore the caller's `AudioExtractionOptions.ModelSize` and
+  use the host-resolved size instead) can advertise the resolved size
+  to `AudioDocumentParser`. `LazyAudioTranscriber` now implements
+  this; the rendered transcript metadata block reads
+  `| Model | large |` when Large was actually used instead of the
+  caller-requested `| Model | base |` we were reporting through
+  2.4.4. Chunk-level audio metadata (`audio.model_size` in the chunk
+  JSON) was already correct — this fixes only the in-transcript
+  header that downstream chunkers and search relevance see.
+
+- **`smoke-ocr` diagnostic CLI mode.**
+  `fieldcure-mcp-rag smoke-ocr --pdf <scanned.pdf>` loads the
+  scanned PDF through the registered OCR fallback parser and prints
+  the extracted text to stdout, exiting `0` on a non-empty result.
+  `DllNotFoundException` and `BadImageFormatException` are caught
+  and surfaced distinctly so an arch-mismatch or missing native is
+  immediately visible. Used by the manual ARM64 smoke workflow but
+  also useful as an ops health check ("can my install OCR a page?").
+
+- **Manual ARM64 dnx smoke workflow.**
+  `.github/workflows/arm64-dnx-smoke.yml` (`workflow_dispatch` only)
+  runs the cross-arch validation: a `windows-latest` job packs this
+  tool with `/p:OcrPackageVersion=<pinned-version>`; a
+  `windows-11-arm` job downloads the resulting nupkg, installs the
+  tool from the local feed, and invokes `smoke-ocr` against
+  `fieldcure-document-parsers`' scanned-English fixture. End-to-end
+  pass means both the multi-arch pack and the runtime
+  `CustomSearchPath` flip work. Re-run on demand whenever the OCR
+  version changes.
+
+### Changed
+
+- `FieldCure.DocumentParsers.Audio` PackageReference bumped 0.3.* -> 0.4.*.
+- `FieldCure.DocumentParsers.Ocr` PackageReference now reads from the
+  new `OcrPackageVersion` MSBuild property (default `1.*`). Production
+  builds keep wildcard restore; the smoke workflow overrides via
+  `/p:OcrPackageVersion=[x.y.z-preview.n]` to validate prereleases
+  without committing transient pins.
+
+### Migration
+
+- **None required** for callers consuming `FieldCure.Mcp.Rag` via
+  `dnx` — restore picks up the new OCR/Audio versions automatically.
+- AssistStudio (and any host running this tool from a hard-pinned
+  version) needs to bump its dnx pin to `2.5.0` to get the ARM64 fix
+  and the effective-model header.
+
 ## v2.4.4 (2026-05-06)
 
 ### Fixed

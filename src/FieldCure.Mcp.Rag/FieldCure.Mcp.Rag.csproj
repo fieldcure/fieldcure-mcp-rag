@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>2.4.4</Version>
+    <Version>2.5.0</Version>
     <PackageId>FieldCure.Mcp.Rag</PackageId>
 
     <Authors>Jong Hyun Kim</Authors>
@@ -20,7 +20,7 @@
     <RepositoryUrl>https://github.com/fieldcure/fieldcure-mcp-rag</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>mcp;mcp-server;ai;dotnet;rag;embedding;vector-search;knowledge-base;bm25</PackageTags>
-    <PackageReleaseNotes>v2.4.4: Folds prune-orphans into serve startup so that a host (e.g., AssistStudio) does not have to spawn a separate prune-orphans dnx process before the serve-mode connect. On clean PCs both invocations were resolving the FieldCure.Mcp.Rag package against the same dnx fetch lock, and one side dropped out after ~1.6 s with "server shut down unexpectedly" — surfacing at first launch as a failed RAG built-in connection. RunServeAsync now calls OrphanCleanupRunner.RunAsync (emitJson=false so stdout stays reserved for the MCP wire protocol) right before app.RunAsync(); failures are logged and swallowed so prune cannot block serve. A 5-second mtime grace was added to OrphanCleanupRunner so a freshly created KB folder cannot be observed-and-deleted in the brief window between the App's mkdir and its config.json write — closes the only residual race. The standalone prune-orphans CLI mode is preserved unchanged for manual / scripted invocations and its JSON output is byte-compatible with v2.4.3 (no key additions or removals). Nine new tests cover live-KB preservation, aged orphan deletion, the young-orphan grace, the grace=0 escape hatch used by tests, non-GUID and protected folders, both emitJson contracts (CLI vs serve), and the missing-base-path exit code.</PackageReleaseNotes>
+    <PackageReleaseNotes>v2.5.0: ARM64 dnx support + Audio 0.4 effective-model reporting. Picks up FieldCure.DocumentParsers.Ocr 1.2.0 which adds the multi-arch tool layout (tools/&lt;tfm&gt;/any/x64/ + tools/&lt;tfm&gt;/any/arm64-platform/x64/) and a runtime CustomSearchPath router, so this tool nupkg now installs and runs cleanly under dnx on both win-x64 and win-arm64 from a single package. Picks up FieldCure.DocumentParsers.Audio 0.4 and has LazyAudioTranscriber implement the new IModelSizeReporting capability — the rendered transcript header now reflects the effective model size that was actually used (e.g., "| Model | large |") instead of the caller-requested size we were reporting through 2.4.4. Chunk-level audio metadata (audio.model_size in the chunk JSON) is unchanged — the fix is the in-transcript header only. Adds a smoke-ocr diagnostic CLI mode (fieldcure-mcp-rag smoke-ocr --pdf &lt;scanned.pdf&gt;) used by the new manual arm64-dnx-smoke.yml workflow to validate the cross-arch deployment path on a windows-11-arm runner. The OCR PackageReference Version is now parameterizable via the OcrPackageVersion MSBuild property (default "1.*") so future preview pins can be supplied without csproj edits.</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>Logo.png</PackageIcon>
 

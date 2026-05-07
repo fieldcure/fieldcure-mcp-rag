@@ -14,13 +14,15 @@ fieldcure-mcp-rag
 ├── serve         --base-path <path>                         # Multi-KB MCP search server (stdio)
 ├── exec          --path <kb-path> [--force] [--partial ...]  # Headless indexing for a single KB
 ├── exec-queue    --queue-file <path> [--sweep-all]           # Process deferred indexing queue
-└── prune-orphans --base-path <path>                         # Delete orphan KB folders
+├── prune-orphans --base-path <path>                         # Delete orphan KB folders
+└── smoke-ocr     --pdf <scanned.pdf>                        # Self-test: OCR a scanned PDF (Windows)
 ```
 
 - **serve** — read-only MCP server serving all knowledge bases under the base path. Single process handles multiple KBs via `kb_id` parameter. Can run while exec is indexing (SQLite WAL).
 - **exec** — scans source folders, chunks documents, contextualizes with AI, embeds, stores in SQLite. `--partial` re-runs only downstream stages when models change, preserving OCR output.
 - **exec-queue** — sequential orchestrator consuming a deferred indexing queue. One entry at a time, no GPU contention. `--sweep-all` processes deferred entries too (used at app shutdown).
 - **prune-orphans** — deletes orphan KB folders (GUID-named, no config.json). Protected folders (`.`, `_` prefix, `-backup-`) are never touched.
+- **smoke-ocr** — diagnostic mode. Loads a scanned PDF through the OCR fallback parser, prints recognized text to stdout, and exits `0` on a non-empty result. Surfaces `DllNotFoundException` / `BadImageFormatException` distinctly so a missing or arch-mismatched native is immediately visible. Useful for verifying that the OCR native path is wired correctly on a given host (notably win-arm64 dnx installs).
 
 ## Features
 
