@@ -1,6 +1,7 @@
 ﻿using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
+using FieldCure.DocumentParsers;
 #if WINDOWS_OCR
 using FieldCure.DocumentParsers.Ocr;
 #endif
@@ -60,6 +61,7 @@ if (args.Length > 0)
         "exec-queue" => await RunExecQueueAsync(args),
         "serve" => await RunServeAsync(args),
         "prune-orphans" => await RunPruneOrphansAsync(args),
+        "smoke-ocr" => await RunSmokeOcrAsync(args),
         _ => PrintUsage(),
     };
 }
@@ -241,6 +243,82 @@ async Task<int> RunPruneOrphansAsync(string[] args)
     return await OrphanCleanupRunner.RunAsync(basePath, loggerFactory);
 }
 
+// ── Smoke OCR Mode ─────────────────────────────────────────────────────────
+
+/// <summary>
+/// Diagnostic mode: loads the OCR PDF parser, runs it against the supplied
+/// scanned PDF, prints the extracted text to stdout, and exits 0 when the
+/// result is non-empty (1 otherwise). Used by the manual ARM64 dnx smoke
+/// workflow to exercise the full PackAsTool deployment path on a
+/// windows-11-arm runner: the wrapper's hard-coded x64\ DLL lookup,
+/// NativeLibraryBootstrap's CustomSearchPath routing on ARM64, PDFium
+/// page rendering, and Tesseract recognition. A scanned PDF is required so
+/// the parser actually invokes the OCR fallback (text-layer PDFs short
+/// circuit before touching Tesseract).
+/// </summary>
+async Task<int> RunSmokeOcrAsync(string[] args)
+{
+#if !WINDOWS_OCR
+    Console.Error.WriteLine("smoke-ocr is only available on Windows builds with OCR support.");
+    await Task.CompletedTask;
+    return 1;
+#else
+    var pdfPath = ParseArg(args, "--pdf");
+    if (pdfPath is null) return PrintUsage();
+
+    if (!File.Exists(pdfPath))
+    {
+        Console.Error.WriteLine($"[smoke-ocr] PDF not found: {pdfPath}");
+        return 1;
+    }
+
+    Console.Error.WriteLine(
+        $"[smoke-ocr] arch={RuntimeInformation.ProcessArchitecture} pdf={pdfPath}");
+
+    try
+    {
+        // OcrPdfParser was registered at startup (AddOcrSupport with
+        // LazyOcrEngine) and already pulls Imaging in transitively for
+        // page rendering. Calling AddImagingSupport here would overwrite
+        // .pdf with the text-only PdfImageRenderer and bypass OCR entirely.
+        var parser = DocumentParserFactory.GetParser(".pdf");
+        if (parser is null)
+        {
+            Console.Error.WriteLine("[smoke-ocr] FAIL: no .pdf parser registered");
+            return 1;
+        }
+
+        var bytes = await File.ReadAllBytesAsync(pdfPath);
+        var text = parser.ExtractText(bytes);
+        Console.WriteLine(text ?? string.Empty);
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            Console.Error.WriteLine("[smoke-ocr] FAIL: empty recognition result");
+            return 1;
+        }
+
+        Console.Error.WriteLine($"[smoke-ocr] OK: {text.Length} chars extracted");
+        return 0;
+    }
+    catch (DllNotFoundException ex)
+    {
+        Console.Error.WriteLine($"[smoke-ocr] FAIL: native DLL not found: {ex.Message}");
+        return 1;
+    }
+    catch (BadImageFormatException ex)
+    {
+        Console.Error.WriteLine($"[smoke-ocr] FAIL: arch mismatch loading native DLL: {ex.Message}");
+        return 1;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"[smoke-ocr] FAIL: {ex.GetType().Name}: {ex.Message}");
+        return 1;
+    }
+#endif
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /// <summary>
@@ -337,6 +415,7 @@ static int PrintUsage()
     Console.Error.WriteLine("  fieldcure-mcp-rag exec          --path <kb-path> [--force] [-v]            Run headless indexing for a single KB");
     Console.Error.WriteLine("  fieldcure-mcp-rag exec-queue    --queue-file <path> [--sweep-all] [-v]     Process deferred queue sequentially");
     Console.Error.WriteLine("  fieldcure-mcp-rag prune-orphans --base-path <path>                         Delete orphan KB folders (no config.json)");
+    Console.Error.WriteLine("  fieldcure-mcp-rag smoke-ocr     --pdf <scanned.pdf>                        Self-test: OCR a scanned PDF and print text (Windows only)");
     Console.Error.WriteLine();
     Console.Error.WriteLine("Exit codes (exec mode):");
     Console.Error.WriteLine("  0  Succeeded");

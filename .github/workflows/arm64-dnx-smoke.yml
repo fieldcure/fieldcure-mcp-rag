@@ -1,0 +1,91 @@
+name: ARM64 dnx smoke
+
+# Manual-only. Validates the full PackAsTool / dnx ARM64 deployment path of
+# FieldCure.DocumentParsers.Ocr by:
+#
+#   1. (windows-latest) Packing FieldCure.Mcp.Rag as a tool nupkg with the
+#      OCR PackageReference pinned to a specified prerelease (default
+#      [1.2.0-preview.1]). The OCR package's build/*.targets fires its
+#      PackAsTool branch and emits BOTH the x64 and ARM64 native DLL trees
+#      into tools/<tfm>/any/x64/ and tools/<tfm>/any/arm64-platform/x64/.
+#
+#   2. (windows-11-arm) Installing the resulting tool from the local feed
+#      and running `fieldcure-mcp-rag smoke-ocr --pdf <fixture.pdf>` against
+#      a scanned PDF fixture from fieldcure-document-parsers. NativeLibrary
+#      Bootstrap detects the ARM64 process and points the wrapper's
+#      LibraryLoader at <basedir>/arm64-platform/, which resolves the
+#      ARM64-arch tesseract50.dll. A non-empty extracted text and exit 0
+#      mean the multi-arch pack + runtime routing both work end-to-end.
+#
+# Trigger from the Actions tab; pin a different OCR prerelease via the
+# ocr-version input when validating later previews.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ocr-version:
+        description: 'OCR PackageReference Version to pin (NuGet syntax). Use [x.y.z-preview.n] for an exact prerelease, or 1.* for the latest stable.'
+        required: false
+        default: '[1.2.0-preview.1]'
+
+jobs:
+  pack:
+    name: pack-x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Pack tool nupkg with OCR pin
+        run: |
+          dotnet pack src/FieldCure.Mcp.Rag/FieldCure.Mcp.Rag.csproj `
+            -c Release `
+            -o ./tool-feed `
+            /p:OcrPackageVersion=${{ inputs.ocr-version }} `
+            /p:Version=2.4.4-arm64ci-${{ github.run_number }}
+
+      - name: List packed artifacts
+        run: Get-ChildItem ./tool-feed
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mcp-rag-tool
+          path: ./tool-feed/*.nupkg
+          if-no-files-found: error
+
+  smoke-arm64:
+    name: smoke-arm64
+    needs: pack
+    runs-on: windows-11-arm
+    steps:
+      - name: Checkout fieldcure-document-parsers (for OCR fixture)
+        uses: actions/checkout@v5
+        with:
+          repository: fieldcure/fieldcure-document-parsers
+          path: dp
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: mcp-rag-tool
+          path: ./tool-feed
+
+      - name: Install MCP RAG tool from local feed
+        run: |
+          dotnet tool install -g FieldCure.Mcp.Rag `
+            --add-source ./tool-feed `
+            --version 2.4.4-arm64ci-${{ github.run_number }}
+
+      - name: Run smoke-ocr against scanned English PDF
+        run: |
+          fieldcure-mcp-rag smoke-ocr --pdf dp/src/DocumentParsers.Ocr.Tests/TestData/scanned_english.pdf

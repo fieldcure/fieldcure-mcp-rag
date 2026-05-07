@@ -27,6 +27,13 @@
     <PackageType>McpServer</PackageType>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>fieldcure-mcp-rag</ToolCommandName>
+
+    <!-- OCR package version. Default floats to the latest stable 1.x. The
+         ARM64 dnx smoke workflow (.github/workflows/arm64-dnx-smoke.yml)
+         overrides this with /p:OcrPackageVersion=[1.2.0-preview.1] to pin
+         to a specific prerelease while validating the multi-arch
+         PackAsTool path before stable 1.2.0 is published. -->
+    <OcrPackageVersion Condition="'$(OcrPackageVersion)' == ''">1.*</OcrPackageVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -53,8 +60,8 @@
        non-Windows the audio extensions are unsupported and matching files
        silently return empty text from DocumentParserFactory.GetParser. -->
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
-    <PackageReference Include="FieldCure.DocumentParsers.Ocr" Version="1.*" />
-    <PackageReference Include="FieldCure.DocumentParsers.Audio" Version="0.3.*" />
+    <PackageReference Include="FieldCure.DocumentParsers.Ocr" Version="$(OcrPackageVersion)" />
+    <PackageReference Include="FieldCure.DocumentParsers.Audio" Version="0.4.*" />
 
     <!-- Whisper.net CPU native runtime does not flow transitively into the
          packaged dotnet-tool output: PackAsTool strips runtimes/<rid>/native/

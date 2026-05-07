@@ -21,7 +21,7 @@ namespace FieldCure.Mcp.Rag;
 /// <c>todo/89-1. mcp-rag-audio-integration-v0.1.md</c>.
 /// </remarks>
 [SupportedOSPlatform("windows")]
-internal sealed class LazyAudioTranscriber : IAudioTranscriber
+internal sealed class LazyAudioTranscriber : IAudioTranscriber, IModelSizeReporting
 {
     private readonly WhisperModelSize _modelSize;
     private readonly Lazy<Task<WhisperTranscriber>> _inner;
@@ -37,6 +37,21 @@ internal sealed class LazyAudioTranscriber : IAudioTranscriber
 
     /// <summary>The Whisper model size this transcriber is bound to.</summary>
     public WhisperModelSize ModelSize => _modelSize;
+
+    /// <summary>
+    /// Effective Whisper model size for this transcriber, surfaced to
+    /// <c>AudioDocumentParser</c> via the v0.4
+    /// <see cref="IModelSizeReporting"/> capability. Because this lazy
+    /// wrapper internally overrides the caller-requested
+    /// <see cref="AudioExtractionOptions.ModelSize"/> in
+    /// <see cref="TranscribeAsync"/>, the caller's value would otherwise
+    /// remain in the rendered transcript header even though a different
+    /// model actually ran. Reporting the resolved size here lets the
+    /// parser rewrite the formatting options via
+    /// <c>WithEffectiveModel(...)</c>, so the metadata block reads
+    /// <c>| Model | large |</c> when Large was actually used.
+    /// </summary>
+    public WhisperModelSize? EffectiveModelSize => _modelSize;
 
     /// <summary>
     /// Creates a lazy transcriber that initializes Whisper on first use.
