@@ -1,0 +1,38 @@
+name: Publish to MCP Registry
+
+# Manual trigger. Run this AFTER the matching FieldCure.Mcp.Rag version is
+# live on nuget.org: the MCP Registry validates the `mcp-name` line in the
+# published NuGet package's README, so NuGet must be indexed first. The manual
+# workflow_dispatch is the safety gate — mcp-publisher has no client-side
+# dry-run / validate-only mode.
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # GitHub OIDC — lets mcp-publisher authenticate without a PAT
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # Official install path (https://modelcontextprotocol.io/registry/github-actions):
+      # the prebuilt mcp-publisher binary from the registry releases. `go install`
+      # does NOT work — the registry Go module exposes no cmd/mcp-publisher package.
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      # GitHub Actions OIDC login. The workflow's repository owner must own the
+      # io.github.fieldcure namespace declared in .mcp/server.json.
+      - name: Authenticate (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+
+      # mcp-publisher reads server.json from the working directory; the binary
+      # itself was extracted to the repo root by the install step.
+      - name: Publish server.json
+        working-directory: src/FieldCure.Mcp.Rag/.mcp
+        run: |
+          "$GITHUB_WORKSPACE/mcp-publisher" publish
