@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <Version>2.5.0</Version>
+    <Version>2.5.1</Version>
     <PackageId>FieldCure.Mcp.Rag</PackageId>
 
     <Authors>Jong Hyun Kim</Authors>
@@ -20,7 +20,7 @@
     <RepositoryUrl>https://github.com/fieldcure/fieldcure-mcp-rag</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>mcp;mcp-server;ai;dotnet;rag;embedding;vector-search;knowledge-base;bm25</PackageTags>
-    <PackageReleaseNotes>v2.5.0: ARM64 dnx support + Audio 0.4 effective-model reporting. Picks up FieldCure.DocumentParsers.Ocr 1.2.0 which adds the multi-arch tool layout (tools/&lt;tfm&gt;/any/x64/ + tools/&lt;tfm&gt;/any/arm64-platform/x64/) and a runtime CustomSearchPath router, so this tool nupkg now installs and runs cleanly under dnx on both win-x64 and win-arm64 from a single package. Picks up FieldCure.DocumentParsers.Audio 0.4 and has LazyAudioTranscriber implement the new IModelSizeReporting capability — the rendered transcript header now reflects the effective model size that was actually used (e.g., "| Model | large |") instead of the caller-requested size we were reporting through 2.4.4. Chunk-level audio metadata (audio.model_size in the chunk JSON) is unchanged — the fix is the in-transcript header only. Adds a smoke-ocr diagnostic CLI mode (fieldcure-mcp-rag smoke-ocr --pdf &lt;scanned.pdf&gt;) used by the new manual arm64-dnx-smoke.yml workflow to validate the cross-arch deployment path on a windows-11-arm runner. The OCR PackageReference Version is now parameterizable via the OcrPackageVersion MSBuild property (default "1.*") so future preview pins can be supplied without csproj edits.</PackageReleaseNotes>
+    <PackageReleaseNotes>v2.5.1: Metadata-only patch. .mcp/server.json now declares 5 LLM-provider environment variables for MCP Server Registry discovery — OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, VOYAGE_API_KEY, GROQ_API_KEY (all secrets, all optional). Rag uses whichever subset is configured for embedding and contextualization; the descriptor allows the registry to surface which keys consumers may want to set. Pure descriptor change — runtime behaviour unchanged; ADR-001 serve-mode Elicitation (max 2 re-elicits + session cache) and exec/exec-queue env-only resolution are unaffected. Pack-time VerifyServerJsonVersion MSBuild target (fixed in 04f07db after catching a 2.4.4 → 2.5.0 sync miss) catches drift between csproj &lt;Version&gt; and the two version fields in .mcp/server.json. publish-mcp-registry.yml GitHub Actions workflow (manual workflow_dispatch) drives the MCP Server Registry update via OIDC.</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>Logo.png</PackageIcon>
 

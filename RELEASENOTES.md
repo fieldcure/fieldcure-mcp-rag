@@ -1,5 +1,16 @@
 # Release Notes
 
+## v2.5.1 (2026-05-25)
+
+### Internal
+
+- **`.mcp/server.json` declares 5 LLM-provider environment variables** for MCP Server Registry discovery: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `VOYAGE_API_KEY`, `GROQ_API_KEY`. All are marked `isSecret: true` and `isRequired: false` — Rag uses whichever subset is configured for embedding and contextualization, and serve-mode Elicitation (ADR-001) covers the gap when a key is needed but not present. The descriptor allows the registry listing to surface which keys consumers may want to pre-configure.
+- **Pack-time `VerifyServerJsonVersion` MSBuild target** (fixed in `04f07db` after catching a 2.4.4 → 2.5.0 sync miss that shipped a stale descriptor) continues to catch drift between csproj `<Version>` and the two version fields in `.mcp/server.json`.
+- **`publish-mcp-registry.yml` GitHub Actions workflow** (manual `workflow_dispatch`) drives the MCP Server Registry update via GitHub OIDC. Run AFTER NuGet indexing because the registry validates the published nupkg README's `mcp-name` line.
+- No runtime behaviour changes; ADR-001 serve-mode Elicitation chain (max 2 re-elicits + session cache) and exec/exec-queue env-only resolution are unaffected.
+
+---
+
 ## v2.5.0 (2026-05-07)
 
 ### Added
